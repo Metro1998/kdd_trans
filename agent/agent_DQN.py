@@ -31,6 +31,7 @@ from keras.models import Model
 
 # contains all of the intersections
 
+
 class TestAgent():
     def __init__(self):
 
@@ -56,9 +57,7 @@ class TestAgent():
         self.learning_rate = 0.005
         self.batch_size = 32
         self.ob_length = 24
-
-        # here we only use the first five phase instead of eight, you can try eight yourself.
-        self.action_space = 4
+        self.action_space = 8
 
         self.model = self._build_model()
 

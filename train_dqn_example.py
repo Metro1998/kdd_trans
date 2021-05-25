@@ -279,30 +279,6 @@ def process_score(log_path, roads, step, scores_dir):
     return result_write['data']['total_served_vehicles'], result_write['data']['delay_index']
 
 
-def extract_state(agent_id_list: list, agents: dict, roads: dict, infos: dict):
-    # Define our state
-    observations_for_agent = {}
-    for observations_agent_id in agent_id_list:
-        # initialize queue length in eight lanes, if inroads don's exist.the value is always 0
-        observations_for_agent[observations_agent_id] = [0, 0, 0, 0, 0, 0, 0, 0]
-        # roads_of_agent: a list contains inroads0,1,2,3,if inroads don's exist.the value is -1
-        roads_of_agent = agents[observations_agent_id][0:4]
-        for key, val in infos.items():
-            road_id = infos[key]["road"][0]
-            lane_id = infos[key]["drivable"][0]
-            if road_id in roads_of_agent:
-                # index: judge the direction of this road. 0 means north, 1 means east. 2 means south,3 means west
-                index = roads_of_agent.index(road_id)
-                # Full length minus the distance from this vehicle to the start point of current road
-                if roads[road_id]["length"] - infos[key]["distance"] < roads[road_id][
-                    "speed_limit"] * 10:
-                    if lane_id == road_id * 100:
-                        observations_for_agent[observations_agent_id][index * 2] += 1
-                    if lane_id == road_id * 100 + 1:
-                        observations_for_agent[observations_agent_id][index * 2 + 1] += 1
-    return observations_for_agent
-
-
 def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
     logger.info("\n")
     logger.info("*" * 40)
@@ -340,37 +316,27 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
     env.set_log(0)
     env.set_warning(0)
     env.set_ui(0)
-    env.set_info(0)
+    # env.set_info(0)
     # agent.load_model(args.save_dir, 199)
 
     # The main loop
     for e in range(args.episodes):
         print("----------------------------------------------------{}/{}".format(e, args.episodes))
-        last_obs = env.reset()
+        observations, infos = env.reset()
         episodes_rewards = {}
         for agent_id in agent_id_list:
             episodes_rewards[agent_id] = 0
+        observations_for_agent = agent.extract_state(agent_id_list, agents, roads, infos)
         episodes_decision_num = 0
-
         # Begins one simulation.
         i = 0
         while i < args.steps:
+            print("------------------------------{}/{}".format(i, args.steps))
             if i % args.action_interval == 0:
-                if isinstance(last_obs, tuple):
-                    observations = last_obs[0]
-                else:
-                    observations = last_obs
-                actions = {}
-                # observations_for_agent: a dict the key is agent_id,and the value is a list of 1*8
-                observations_for_agent = extract_state(agent_id_list, agents, roads, infos)
                 # Get the action, note that we use act_() for training.
+                # print("observations_for_agent:{}".format(observations_for_agent))
                 actions = agent.act_(observations_for_agent)
-
                 rewards_list = {}
-
-                actions_ = {}
-                for key in actions.keys():
-                    actions_[key] = actions[key] + 1
 
                 # We keep the same action for a certain time
                 for _ in range(args.action_interval):
@@ -378,42 +344,27 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
                     i += 1
 
                     # Interacts with the environment and get the reward.
-                    observations, rewards, dones, infos = env.step(actions_)
-                    for agent_id in agent_id_list:
-                        lane_vehicle = observations["{}_lane_vehicle_num".format(agent_id)]
-                        pressure = (np.sum(lane_vehicle[13: 25]) - np.sum(lane_vehicle[1: 13])) / args.action_interval
-                        if agent_id in rewards_list:
-                            rewards_list[agent_id] += pressure
-                        else:
-                            rewards_list[agent_id] = pressure
-
-                rewards = rewards_list
-                new_observations_for_agent = {}
+                    _, _, dones, infos = env.step(actions)
 
                 # Get next state.
-
-                for key, val in observations.items():
-                    observations_agent_id = int(key.split('_')[0])
-                    observations_feature = key.split('_')[1]
-                    if (observations_agent_id not in new_observations_for_agent.keys()):
-                        new_observations_for_agent[observations_agent_id] = {}
-                    val = val[1:]
-                    while len(val) < agent.ob_length:
-                        val.append(0)
-                    new_observations_for_agent[observations_agent_id][observations_feature] = val
+                new_observations_for_agent = agent.extract_state(agent_id_list, agents, roads, infos)
+                for key, val in new_observations_for_agent.items():
+                    rewards_list[key] = -sum(val[0:8])
+                rewards = rewards_list
 
                 # Remember (state, action, reward, next_state) into memory buffer.
                 for agent_id in agent_id_list:
-                    agent.remember(observations_for_agent[agent_id]['lane'], actions[agent_id], rewards[agent_id],
-                                   new_observations_for_agent[agent_id]['lane'])
+                    agent.remember(observations_for_agent[agent_id], actions[agent_id] - 1, rewards[agent_id],
+                                   new_observations_for_agent[agent_id])
                     episodes_rewards[agent_id] += rewards[agent_id]
                 episodes_decision_num += 1
                 total_decision_num += 1
 
-                last_obs = observations
-
+                observations_for_agent = new_observations_for_agent
+                # print("reward:{},".format(rewards))
             # Update the network
             if total_decision_num > agent.learning_start and total_decision_num % agent.update_model_freq == agent.update_model_freq - 1:
+                print("Total decision num:{} replaying...........".format(total_decision_num))
                 agent.replay()
             if total_decision_num > agent.learning_start and total_decision_num % agent.update_target_model_freq == agent.update_target_model_freq - 1:
                 agent.update_target_network()
@@ -616,7 +567,7 @@ if __name__ == "__main__":
     parser.add_argument('--thread', type=int, default=8, help='number of threads')
     parser.add_argument('--steps', type=int, default=360, help='number of steps')
     parser.add_argument('--action_interval', type=int, default=2, help='how often agent make decisions')
-    parser.add_argument('--episodes', type=int, default=100, help='training episodes')
+    parser.add_argument('--episodes', type=int, default=50, help='training episodes')
 
     parser.add_argument('--save_model', action="store_true", default=False)
     parser.add_argument('--load_model', action="store_true", default=False)

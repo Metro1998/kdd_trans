@@ -5,11 +5,40 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Normal
 from torch.optim import Adam
+import random
+import numpy as np
+
+"""
+replay_memory
+"""
+
+
+class ReplayMemory:
+    def __init__(self, capacity, seed):
+        random.seed(seed)
+        self.capacity = capacity
+        self.buffer = []
+        self.position = 0
+
+    def push(self, state, action, reward, next_state, done):
+        if len(self.buffer) < self.capacity:
+            self.buffer.append(None)
+        self.buffer[self.position] = (state, action, reward, next_state, done)
+        self.position = (self.position + 1) % self.capacity
+
+    def sample(self, batch_size):
+        batch = random.sample(self.buffer, batch_size)
+        state, action, reward, next_state, done = map(np.stack, zip(*batch))
+        return state, action, reward, next_state, done
+
+    def __len__(self):
+        return len(self.buffer)
 
 
 """
 utils
 """
+
 
 def create_log_gaussian(mean, log_std, t):
     quadratic = -((0.5 * (t - mean) / (log_std.exp())).pow(2))
@@ -18,6 +47,7 @@ def create_log_gaussian(mean, log_std, t):
     z = l[-1] * math.log(2 * math.pi)
     log_p = quadratic.sum(dim=-1) - log_z.sum(dim=-1) - 0.5 * z
     return log_p
+
 
 def logsumexp(inputs, dim=None, keepdim=False):
     if dim is None:
@@ -29,9 +59,11 @@ def logsumexp(inputs, dim=None, keepdim=False):
         outputs = outputs.squeeze(dim)
     return outputs
 
+
 def soft_update(target, source, tau):
     for target_param, param in zip(target.parameters(), source.parameters()):
         target_param.data.copy_(target_param.data * (1.0 - tau) + param.data * tau)
+
 
 def hard_update(target, source):
     for target_param, param in zip(target.parameters(), source.parameters()):
@@ -43,6 +75,7 @@ models
 """
 
 epsilon = 1e-6
+
 
 # Initialize Policy weights
 def weights_init_(m):
@@ -99,7 +132,7 @@ class QNetwork(nn.Module):
 
 
 class GaussianPolicy(nn.Module):
-    def __init__(self, num_inputs, num_actions, hidden_dim, action_space=None):
+    def __init__(self, num_inputs, num_actions, hidden_dim):
         super(GaussianPolicy, self).__init__()
 
         self.linear1 = nn.Linear(num_inputs, hidden_dim)
@@ -109,16 +142,6 @@ class GaussianPolicy(nn.Module):
         self.log_std_linear = nn.Linear(hidden_dim, num_actions)
 
         self.apply(weights_init_)
-
-        # action rescaling
-        if action_space is None:
-            self.action_scale = torch.tensor(1.)
-            self.action_bias = torch.tensor(0.)
-        else:
-            self.action_scale = torch.FloatTensor(
-                (action_space.high - action_space.low) / 2.)
-            self.action_bias = torch.FloatTensor(
-                (action_space.high + action_space.low) / 2.)
 
     def forward(self, state):
         x = F.relu(self.linear1(state))
@@ -134,7 +157,7 @@ class GaussianPolicy(nn.Module):
         normal = Normal(mean, std)
         x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
         y_t = torch.tanh(x_t)
-        action = y_t * self.action_scale + self.action_bias
+        action = y_t
         log_prob = normal.log_prob(x_t)
         # Enforcing Action Bound
         log_prob -= torch.log(self.action_scale * (1 - y_t.pow(2)) + epsilon)
@@ -152,8 +175,9 @@ class GaussianPolicy(nn.Module):
 agent_SAC
 """
 
+
 class SAC(object):
-    def __init__(self, num_inputs=9, action_space):
+    def __init__(self, num_inputs, action_space):
         # TODO: fill the para
 
         self.gamma = 0.99
@@ -167,25 +191,65 @@ class SAC(object):
         self.device = torch.device("cpu")
         self.hidden_size = 256
 
-        self.critic = QNetwork(num_inputs, action_space.shape[0], self.hidden_size).to(device=self.device)
+        self.critic = QNetwork(num_inputs, action_space.shape[0], self.hidden_size).to(self.device)
         self.critic_optim = Adam(self.critic.parameters(), lr=self.lr)
 
-        self.critic_target = QNetwork(num_inputs, action_space.shape[0], args.hidden_size).to(self.device)
+        self.critic_target = QNetwork(num_inputs, action_space.shape[0], self.hidden_size).to(self.device)
         hard_update(self.critic_target, self.critic)
 
-        self.target_entropy = -torch.prod(torch.Tensor(action_space.shape).to(self.device)).item()
+        self.target_entropy = -torch.prod(torch.Tensor(action_space.shape).to(self.device)).item()  # TODO
         self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
         self.alpha_optim = Adam([self.log_alpha], lr=self.lr)
 
-        self.policy = GaussianPolicy(num_inputs, action_space.shape[0], args.hidden_size, action_space).to(self.device)
+        self.policy = GaussianPolicy(num_inputs, action_space.shape[0], self.hidden_size).to(self.device)
         self.policy_optim = Adam(self.policy.parameters(), lr=self.lr)
 
-    def select_action(self, state, evaluate=False):
+    def load_agent_list(self, agent_list):
+        self.agent_list = agent_list
+        self.now_phase = dict.fromkeys(self.agent_list, 1)
+        self.last_change_step = dict.fromkeys(self.agent_list, 0)
+
+    def load_roadnet(self, intersections, roads, agents):
+        self.intersections = intersections
+        self.roads = roads
+        self.agents = agents
+
+    def extract_state(self, agent_id_list: list, agents: dict, roads: dict, infos: dict):
+        # Define our state
+        vehicle_in_road = {}
+        for i in range(1, 6045):
+            vehicle_in_road[i] = [0, 0, 0]
+        for key, val in infos.items():
+            road_id = infos[key]["road"][0]
+            lane_id = infos[key]["drivable"][0]
+            if roads[road_id]["length"] - infos[key]["distance"][0] < roads[road_id][
+                "speed_limit"] * 10:
+                if lane_id == road_id * 100 + 0:
+                    vehicle_in_road[int(road_id)][0] += 1
+                elif lane_id == road_id * 100 + 1:
+                    vehicle_in_road[int(road_id)][1] += 1
+                elif lane_id == road_id * 100 + 2:
+                    vehicle_in_road[int(road_id)][2] += 1
+            else:
+                pass
+        observations_for_agent = {}
+        for observations_agent_id in agent_id_list:
+            # the last zero is now_phase
+            observations_for_agent[observations_agent_id] = [0, 0, 0, 0, 0, 0, 0, 0, 0]
+            inroads_of_agent = agents[observations_agent_id][0:4]
+            for i in range(0, 8, 2):
+                if inroads_of_agent[int(i / 2)] != -1:
+                    observations_for_agent[observations_agent_id][i] = vehicle_in_road[inroads_of_agent[int(i / 2)]][0]
+                    observations_for_agent[observations_agent_id][i + 1] = \
+                        vehicle_in_road[inroads_of_agent[int(i / 2)]][1]
+                else:
+                    pass
+            observations_for_agent[observations_agent_id][-1] = self.now_phase[observations_agent_id]
+        return observations_for_agent
+
+    def select_action(self, state):
         state = torch.FloatTensor(state).to(self.device).unsqueeze(0)
-        if evaluate is False:
-            action, _, _ = self.policy.sample(state)
-        else:
-            _, _, action = self.policy.sample(state)
+        action, _, _ = self.policy.sample(state)
         return action.detach().cpu().numpy()[0]
 
     def update_parameters(self, memory, batch_size, updates):
@@ -203,7 +267,8 @@ class SAC(object):
             qf1_next_target, qf2_next_target = self.critic_target(next_state_batch, next_state_action)
             min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - self.alpha * next_state_log_pi
             next_q_value = reward_batch + mask_batch * self.gamma * min_qf_next_target
-        qf1, qf2 = self.critic(state_batch, action_batch)  # Two Q-functions to mitigate positive bias in the policy improvement step
+        qf1, qf2 = self.critic(state_batch,
+                               action_batch)  # Two Q-functions to mitigate positive bias in the policy improvement step
         qf1_loss = F.mse_loss(qf1, next_q_value)  # JQ = 𝔼(st,at)~D[0.5(Q1(st,at) - r(st,at) - γ(𝔼st+1~p[V(st+1)]))^2]
         qf2_loss = F.mse_loss(qf2, next_q_value)  # JQ = 𝔼(st,at)~D[0.5(Q1(st,at) - r(st,at) - γ(𝔼st+1~p[V(st+1)]))^2]
         qf_loss = qf1_loss + qf2_loss
@@ -217,7 +282,7 @@ class SAC(object):
         qf1_pi, qf2_pi = self.critic(state_batch, pi)
         min_qf_pi = torch.min(qf1_pi, qf2_pi)
 
-        policy_loss = ((self.alpha * log_pi) - min_qf_pi).mean() # Jπ = 𝔼st∼D,εt∼N[α * logπ(f(εt;st)|st) − Q(st,f(εt;st))]
+        policy_loss = ((self.alpha * log_pi) - min_qf_pi).mean()  # Jπ = 𝔼st∼D,εt∼N[α * logπ(f(εt;st)|st) − Q(st,f(εt;st))]
 
         self.policy_optim.zero_grad()
         policy_loss.backward()
@@ -230,7 +295,7 @@ class SAC(object):
         self.alpha_optim.step()
 
         self.alpha = self.log_alpha.exp()
-        alpha_tlogs = self.alpha.clone() # For TensorboardX logs
+        alpha_tlogs = self.alpha.clone()  # For TensorboardX logs
 
         if updates % self.target_update_interval == 0:
             soft_update(self.critic_target, self.critic, self.tau)
@@ -266,6 +331,6 @@ scenario_dirs = [
 agent_specs = dict.fromkeys(scenario_dirs, None)
 for i, k in enumerate(scenario_dirs):
     # initialize an AgentSpec instance with configuration
-    agent_specs[k] = SAC()
+    agent_specs[k] = SAC(num_inputs=9, action_space=np.array(2,3,4))
     # **important**: assign policy builder to your agent spec
     # NOTE: the policy builder must be a callable function which returns an instance of `AgentPolicy`

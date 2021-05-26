@@ -160,6 +160,7 @@ agent_SAC
 
 class SAC(object):
     def __init__(self):
+        super(self, SAC).__init__()
         # TODO: fill the para
 
         self.gamma = 0.99

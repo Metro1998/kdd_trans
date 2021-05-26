@@ -1,5 +1,3 @@
-import datetime
-
 import CBEngine
 import json
 import traceback
@@ -12,7 +10,6 @@ from pathlib import Path
 import re
 import gym
 import numpy as np
-
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__file__)
@@ -70,20 +67,21 @@ def load_agent_submission(submission_dir: Path):
                 cfg_path = dirpath
     # error
     assert (
-            module_path is not None
+        module_path is not None
     ), "Cannot find file named agent.py, please check your submission zip"
-    assert (
-            cfg_path is not None
+    assert(
+        cfg_path is not None
     ), "Cannot find file named gym_cfg.py, please check your submission zip"
     sys.path.append(str(module_path))
 
+
     # This will fail w/ an import error of the submissions directory does not exist
     import gym_cfg as gym_cfg_submission
-    import agent_SAC as agent_submission
+    import agent as agent_submission
 
     gym_cfg_instance = gym_cfg_submission.gym_cfg()
 
-    return agent_submission.agent_specs, gym_cfg_instance
+    return  agent_submission.agent_specs,gym_cfg_instance
 
 
 def read_config(cfg_file):
@@ -92,7 +90,7 @@ def read_config(cfg_file):
         lines = f.readlines()
         for line in lines:
             line = line.rstrip('\n').split(' ')
-            if (len(line) == 3 and line[0][0] != '#'):
+            if(len(line) == 3 and line[0][0] != '#'):
                 configs[line[0]] = line[-1]
     return configs
 
@@ -148,7 +146,7 @@ def process_roadnet(roadnet_file):
                         'have_signal': int(line[3]),
                         'end_roads': [],
                         'start_roads': [],
-                        'lanes': []
+                        'lanes':[]
                     }
                 elif (cnt == 2):
                     if (len(line) != 8):
@@ -210,7 +208,7 @@ def process_delay_index(lines, roads, step):
 
     for i in range(len(lines)):
         line = lines[i]
-        if (line[0] == 'for'):
+        if(line[0] == 'for'):
             vehicle_id = int(line[2])
             now_dict = {
                 'distance': float(lines[i + 1][2]),
@@ -219,9 +217,9 @@ def process_delay_index(lines, roads, step):
                 'route': list(map(int, list(map(float, lines[i + 4][2:])))),
                 'speed': float(lines[i + 5][2]),
                 'start_time': float(lines[i + 6][2]),
-                't_ff': float(lines[i + 7][2]),
-                ##############
-                'step': int(lines[i + 8][2])
+                't_ff': float(lines[i+7][2]),
+            ##############
+                'step': int(lines[i+8][2])
             }
             step = now_dict['step']
             ##################
@@ -231,14 +229,14 @@ def process_delay_index(lines, roads, step):
             tt_f_r = 0.0
             current_road_pos = 0
             for pos in range(len(now_dict['route'])):
-                if (now_dict['road'] == now_dict['route'][pos]):
+                if(now_dict['road'] == now_dict['route'][pos]):
                     current_road_pos = pos
             for pos in range(len(now_dict['route'])):
                 road_id = now_dict['route'][pos]
-                if (pos == current_road_pos):
+                if(pos == current_road_pos):
                     tt_f_r += (roads[road_id]['length'] -
                                now_dict['distance']) / roads[road_id]['speed_limit']
-                elif (pos > current_road_pos):
+                elif(pos > current_road_pos):
                     tt_f_r += roads[road_id]['length'] / roads[road_id]['speed_limit']
             vehicles[vehicle_id]['tt_f_r'] = tt_f_r
             vehicles[vehicle_id]['delay_index'] = (tt + tt_f_r) / tt_ff
@@ -247,7 +245,7 @@ def process_delay_index(lines, roads, step):
     delay_index_list = []
     for vehicle_id, dict in vehicles.items():
         # res = max(res, dict['delay_index'])
-        if ('delay_index' in dict.keys()):
+        if('delay_index' in dict.keys()):
             delay_index_list.append(dict['delay_index'])
 
     # 'delay_index_list' contains all vehicles' delayindex at this snapshot.
@@ -255,8 +253,7 @@ def process_delay_index(lines, roads, step):
     # 'vehicles' is a dict contains vehicle infomation at this snapshot
     return delay_index_list, vehicle_list, vehicles
 
-
-def process_score(log_path, roads, step, scores_dir):
+def process_score(log_path,roads,step,scores_dir):
     result_write = {
         "data": {
             "total_served_vehicles": -1,
@@ -274,128 +271,11 @@ def process_score(log_path, roads, step, scores_dir):
 
         result_write['data']['total_served_vehicles'] = v_len
         result_write['data']['delay_index'] = delay_index
-        with open(scores_dir / 'scores {}.json'.format(step), 'w') as f_out:
-            json.dump(result_write, f_out, indent=2)
+        with open(scores_dir / 'scores {}.json'.format(step), 'w' ) as f_out:
+            json.dump(result_write,f_out,indent= 2)
 
-    return result_write['data']['total_served_vehicles'], result_write['data']['delay_index']
-
-
-def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
-    logger.info("\n")
-    logger.info("*" * 40)
-
-    gym_configs = gym_cfg.cfg
-    simulator_configs = read_config(simulator_cfg_file)
-    env = gym.make(
-        'CBEngine-v0',
-        simulator_cfg_file=simulator_cfg_file,
-        thread_num=1,
-        gym_dict=gym_configs,
-        metric_period=metric_period
-    )
-    scenario = [
-        "agent_SAC", "memory"
-    ]
-
-    done = False
-
-    roadnet_path = Path(simulator_configs['road_file_addr'])
-
-    intersections, roads, agents = process_roadnet(roadnet_path)
-
-    observations, infos = env.reset()
-    agent_id_list = []
-    for k in observations:
-        agent_id_list.append(int(k.split('_')[0]))
-    agent_id_list = list(set(agent_id_list))
-    agent = agent_spec[scenario[0]]
-    agent.load_agent_list(agent_id_list)
-    agent.load_roadnet(intersections, roads, agents)
-    # Here begins the code for training
-
-    total_decision_num = 0
-    updates = 0
-    env.set_log(0)
-    env.set_warning(0)
-    env.set_ui(0)
-    # env.set_info(0)
-    # agent.load_model(args.save_dir, 199)
-
-    # The main loop
-    for e in range(args.episodes):
-        print("----------------------------------------------------{}/{}".format(e, args.episodes))
-        observations, infos = env.reset()
-        episodes_rewards = {}
-        for agent_id in agent_id_list:
-            episodes_rewards[agent_id] = 0
-        observations_for_agent = agent.extract_state(agent_id_list, agents, roads, infos)
-        episodes_decision_num = 0
-        # Begins one simulation.
-        i = 0
-        while i < args.steps:
-            print("------------------------------{}/{}".format(i, args.steps))
-            if i % args.action_interval == 0:
-                # Get the action, note that we use select_action() for training.
-                # print("observations_for_agent:{}".format(observations_for_agent))
-                if total_decision_num < 10000:
-                    actions = env.action_space.sample() #TODO
-                else:
-                    actions = agent.select_action(observations_for_agent)
-
-                if agent. > 256:
-                    critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = agent.update_parameters(memory,
-                                                                                                         batch_size=256,
-                                                                                                         updates)
-                    updates += 1
-
-                rewards_list = {}
-
-                # We keep the same action for a certain time
-                for _ in range(args.action_interval):
-                    # print(i)
-                    i += 1
-
-                    # Interacts with the environment and get the reward.
-                    _, _, dones, infos = env.step(actions)
-
-                # Get next state.
-                new_observations_for_agent = agent.extract_state(agent_id_list, agents, roads, infos)
-                for key, val in new_observations_for_agent.items():
-                    rewards_list[key] = -sum(val[0:8])
-                rewards = rewards_list
-
-                # Remember (state, action, reward, next_state) into memory buffer. # TODO
-                for agent_id in agent_id_list:
-                    agent.remember(observations_for_agent[agent_id], actions[agent_id] - 1, rewards[agent_id],
-                                   new_observations_for_agent[agent_id])
-                    episodes_rewards[agent_id] += rewards[agent_id]
-                episodes_decision_num += 1
-                total_decision_num += 1
-
-                observations_for_agent = new_observations_for_agent
-                # print("reward:{},".format(rewards))
-
-            # Update the network # TODO
-            if total_decision_num > agent.learning_start and total_decision_num % agent.update_model_freq == agent.update_model_freq - 1:
-                print("Total decision num:{} replaying...........".format(total_decision_num))
-                agent.replay()
-            if total_decision_num > agent.learning_start and total_decision_num % agent.update_target_model_freq == agent.update_target_model_freq - 1:
-                agent.update_target_network()
-            if all(dones.values()):
-                break
-        if e % args.save_rate == args.save_rate - 1:
-            if not os.path.exists(args.save_dir):
-                os.makedirs(args.save_dir)
-            agent.save_model(args.save_dir, e)
-        logger.info(
-            "episode:{}/{}, average travel time:{}".format(e, args.episodes, env.eng.get_average_travel_time()))
-        for agent_id in agent_id_list:
-            logger.info(
-                "agent:{}, mean_episode_reward:{}".format(agent_id,
-                                                          episodes_rewards[agent_id] / episodes_decision_num))
-
-
-def run_simulation(agent_spec, simulator_cfg_file, gym_cfg, metric_period, scores_dir, threshold):
+    return result_write['data']['total_served_vehicles'],result_write['data']['delay_index']
+def run_simulation(agent_spec, simulator_cfg_file, gym_cfg,metric_period,scores_dir,threshold):
     logger.info("\n")
     logger.info("*" * 40)
 
@@ -406,8 +286,8 @@ def run_simulation(agent_spec, simulator_cfg_file, gym_cfg, metric_period, score
         'CBEngine-v0',
         simulator_cfg_file=simulator_cfg_file,
         thread_num=1,
-        gym_dict=gym_configs,
-        metric_period=metric_period
+        gym_dict = gym_configs,
+        metric_period = metric_period
     )
     scenario = [
         'test'
@@ -416,10 +296,10 @@ def run_simulation(agent_spec, simulator_cfg_file, gym_cfg, metric_period, score
     # read roadnet file, get data
     roadnet_path = Path(simulator_configs['road_file_addr'])
     intersections, roads, agents = process_roadnet(roadnet_path)
-    env.set_warning(1)
-    env.set_log(1)
-    env.set_info(1)
-    env.set_ui(1)
+    # env.set_warning(0)
+    # env.set_log(0)
+    # env.set_info(0)
+    # env.set_ui(0)
     # get agent instance
     observations, infos = env.reset()
     agent_id_list = []
@@ -435,31 +315,31 @@ def run_simulation(agent_spec, simulator_cfg_file, gym_cfg, metric_period, score
     log_path = Path(simulator_configs['report_log_addr'])
     sim_start = time.time()
 
-    tot_v = -1
+    tot_v  = -1
     d_i = -1
     while not done:
         actions = {}
-        step += 1
+        step+=1
         all_info = {
-            'observations': observations,
-            'info': infos
+            'observations':observations,
+            'info':infos
         }
         actions = agent.act(all_info)
         observations, rewards, dones, infos = env.step(actions)
-        if (step * 10 % metric_period == 0):
+        if(step * 10 % metric_period == 0):
             try:
-                tot_v, d_i = process_score(log_path, roads, step * 10 - 1, scores_dir)
+                tot_v , d_i = process_score(log_path,roads,step*10-1,scores_dir)
             except Exception as e:
                 print(e)
                 print('Error in process_score. Maybe no log')
                 continue
-        if (d_i > threshold):
+        if(d_i > threshold):
             break
         for agent_id in agent_id_list:
-            if (dones[agent_id]):
+            if(dones[agent_id]):
                 done = True
     sim_end = time.time()
-    logger.info("simulation cost : {}s".format(sim_end - sim_start))
+    logger.info("simulation cost : {}s".format(sim_end-sim_start))
     # read log file
 
     # result = {}
@@ -512,7 +392,7 @@ def run_simulation(agent_spec, simulator_cfg_file, gym_cfg, metric_period, score
     # last_d_i = np.mean(list(delay_index_temp.values()))
     # eval_end = time.time()
     # logger.info("scoring cost {}s".format(eval_end-eval_start))
-    return tot_v, d_i
+    return tot_v,  d_i
 
 
 def format_exception(grep_word):
@@ -533,8 +413,9 @@ def format_exception(grep_word):
 
     return exception_str
 
-
 if __name__ == "__main__":
+
+
     # arg parse
     parser = argparse.ArgumentParser(
         prog="evaluation",
@@ -577,20 +458,6 @@ if __name__ == "__main__":
         type=float
     )
 
-    parser.add_argument('--thread', type=int, default=8, help='number of threads')
-    parser.add_argument('--steps', type=int, default=360, help='number of steps')
-    parser.add_argument('--action_interval', type=int, default=2, help='how often agent make decisions')
-    parser.add_argument('--episodes', type=int, default=50, help='training episodes')
-
-    parser.add_argument('--save_model', action="store_true", default=False)
-    parser.add_argument('--load_model', action="store_true", default=False)
-    parser.add_argument("--save_rate", type=int, default=5,
-                        help="save model once every time this many episodes are completed")
-    parser.add_argument('--save_dir', type=str, default="model/dqn_warm_up",
-                        help='directory in which model should be saved')
-    parser.add_argument('--log_dir', type=str, default="cmd_log/dqn_warm_up",
-                        help='directory in which logs should be saved')
-
     # result to be written in out/result.json
     result = {
         "success": False,
@@ -614,16 +481,16 @@ if __name__ == "__main__":
     except Exception as e:
         msg = format_exception(e)
         result['error_msg'] = msg
-        json.dump(result, open(scores_dir / "scores.json", 'w'), indent=2)
+        json.dump(result,open(scores_dir / "scores.json",'w'),indent=2)
         raise AssertionError()
 
     # get agent and configuration of gym
     try:
-        agent_spec, gym_cfg = load_agent_submission(submission_dir)
+        agent_spec,gym_cfg = load_agent_submission(submission_dir)
     except Exception as e:
         msg = format_exception(e)
         result['error_msg'] = msg
-        json.dump(result, open(scores_dir / "scores.json", 'w'), indent=2)
+        json.dump(result,open(scores_dir / "scores.json",'w'),indent=2)
         raise AssertionError()
 
     logger.info(f"Loaded user agent instance={agent_spec}")
@@ -631,12 +498,11 @@ if __name__ == "__main__":
     # simulation
     start_time = time.time()
     try:
-        train(agent_spec, simulator_cfg_file, gym_cfg, metric_period)
-        scores = run_simulation(agent_spec, simulator_cfg_file, gym_cfg, metric_period, scores_dir, threshold)
+        scores = run_simulation(agent_spec, simulator_cfg_file, gym_cfg,metric_period,scores_dir,threshold)
     except Exception as e:
         msg = format_exception(e)
         result['error_msg'] = msg
-        json.dump(result, open(scores_dir / "scores.json", 'w'), indent=2)
+        json.dump(result,open(scores_dir / "scores.json",'w'),indent=2)
         raise AssertionError()
 
     # write result
@@ -648,7 +514,7 @@ if __name__ == "__main__":
     # cal time
     end_time = time.time()
 
-    logger.info(f"total evaluation cost {end_time - start_time} s")
+    logger.info(f"total evaluation cost {end_time-start_time} s")
 
     # write score
     logger.info("\n\n")

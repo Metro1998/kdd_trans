@@ -9,33 +9,6 @@ import random
 import numpy as np
 
 """
-replay_memory
-"""
-
-
-class ReplayMemory:
-    def __init__(self, capacity, seed):
-        random.seed(seed)
-        self.capacity = capacity
-        self.buffer = []
-        self.position = 0
-
-    def push(self, state, action, reward, next_state, done):
-        if len(self.buffer) < self.capacity:
-            self.buffer.append(None)
-        self.buffer[self.position] = (state, action, reward, next_state, done)
-        self.position = (self.position + 1) % self.capacity
-
-    def sample(self, batch_size):
-        batch = random.sample(self.buffer, batch_size)
-        state, action, reward, next_state, done = map(np.stack, zip(*batch))
-        return state, action, reward, next_state, done
-
-    def __len__(self):
-        return len(self.buffer)
-
-
-"""
 utils
 """
 
@@ -75,6 +48,8 @@ models
 """
 
 epsilon = 1e-6
+LOG_SIG_MAX = 2
+LOG_SIG_MIN = -20
 
 
 # Initialize Policy weights
@@ -132,7 +107,7 @@ class QNetwork(nn.Module):
 
 
 class GaussianPolicy(nn.Module):
-    def __init__(self, num_inputs, num_actions, hidden_dim):
+    def __init__(self, num_inputs, num_actions, hidden_dim, low, high):
         super(GaussianPolicy, self).__init__()
 
         self.linear1 = nn.Linear(num_inputs, hidden_dim)
@@ -142,6 +117,13 @@ class GaussianPolicy(nn.Module):
         self.log_std_linear = nn.Linear(hidden_dim, num_actions)
 
         self.apply(weights_init_)
+
+        self.high = high
+        self.low = low
+        self.action_scale = torch.FloatTensor(
+            (high - low) / 2.)
+        self.action_bias = torch.FloatTensor(
+            (high + low) / 2.)
 
     def forward(self, state):
         x = F.relu(self.linear1(state))
@@ -157,18 +139,18 @@ class GaussianPolicy(nn.Module):
         normal = Normal(mean, std)
         x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
         y_t = torch.tanh(x_t)
-        action = y_t
+        action = y_t * self.action_scale + self.action_bias
+        for i in range(self.low, self.high, 1):
+            if i <= action < i+1:
+                action = i+1
+            else:
+                pass
         log_prob = normal.log_prob(x_t)
         # Enforcing Action Bound
         log_prob -= torch.log(self.action_scale * (1 - y_t.pow(2)) + epsilon)
         log_prob = log_prob.sum(1, keepdim=True)
         mean = torch.tanh(mean) * self.action_scale + self.action_bias
         return action, log_prob, mean
-
-    def to(self, device):
-        self.action_scale = self.action_scale.to(device)
-        self.action_bias = self.action_bias.to(device)
-        return super(GaussianPolicy, self).to(device)
 
 
 """
@@ -177,7 +159,7 @@ agent_SAC
 
 
 class SAC(object):
-    def __init__(self, num_inputs, action_space):
+    def __init__(self):
         # TODO: fill the para
 
         self.gamma = 0.99
@@ -186,33 +168,30 @@ class SAC(object):
         self.lr = 0.0003
 
         self.target_update_interval = 1
-        # TODO: AUTO AND GAUSSIAN
-
         self.device = torch.device("cpu")
         self.hidden_size = 256
+        self.low = 0
+        self.high = 8
+        self.num_inputs = 8
+        self.num_actions = 8
 
-        self.critic = QNetwork(num_inputs, action_space.shape[0], self.hidden_size).to(self.device)
+        # memory para
+        self.capacity = 1000000
+        self.positon = 0
+        self.buffer = []
+
+        self.critic = QNetwork(num_inputs, self.num_actions, self.hidden_size).to(self.device)
         self.critic_optim = Adam(self.critic.parameters(), lr=self.lr)
 
-        self.critic_target = QNetwork(num_inputs, action_space.shape[0], self.hidden_size).to(self.device)
+        self.critic_target = QNetwork(num_inputs, self.num_actions, self.hidden_size).to(self.device)
         hard_update(self.critic_target, self.critic)
 
         self.target_entropy = -torch.prod(torch.Tensor(action_space.shape).to(self.device)).item()  # TODO
         self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
         self.alpha_optim = Adam([self.log_alpha], lr=self.lr)
 
-        self.policy = GaussianPolicy(num_inputs, action_space.shape[0], self.hidden_size).to(self.device)
+        self.policy = GaussianPolicy(num_inputs, self.num_actions, self.hidden_size, self.low, self.high).to(self.device)
         self.policy_optim = Adam(self.policy.parameters(), lr=self.lr)
-
-    def load_agent_list(self, agent_list):
-        self.agent_list = agent_list
-        self.now_phase = dict.fromkeys(self.agent_list, 1)
-        self.last_change_step = dict.fromkeys(self.agent_list, 0)
-
-    def load_roadnet(self, intersections, roads, agents):
-        self.intersections = intersections
-        self.roads = roads
-        self.agents = agents
 
     def extract_state(self, agent_id_list: list, agents: dict, roads: dict, infos: dict):
         # Define our state
@@ -302,6 +281,32 @@ class SAC(object):
 
         return qf1_loss.item(), qf2_loss.item(), policy_loss.item(), alpha_loss.item(), alpha_tlogs.item()
 
+    # memory relative
+    def push(self, state, action, reward, next_state, done):
+        if len(self.buffer) < self.capacity:
+            self.buffer.append(None)
+        self.buffer[self.position] = (state, action, reward, next_state, done)
+        self.position = (self.position + 1) % self.capacity
+
+    def sample(self, batch_size):
+        batch = random.sample(self.buffer, batch_size)
+        state, action, reward, next_state, done = map(np.stack, zip(*batch))
+        return state, action, reward, next_state, done
+
+    def __len__(self):
+        return len(self.buffer)
+
+    # env relative
+    def load_agent_list(self, agent_list):
+        self.agent_list = agent_list
+        self.now_phase = dict.fromkeys(self.agent_list, 1)
+        self.last_change_step = dict.fromkeys(self.agent_list, 0)
+
+    def load_roadnet(self, intersections, roads, agents):
+        self.intersections = intersections
+        self.roads = roads
+        self.agents = agents
+
     # Save model parameters
     def save_model(self, env_name, suffix="", actor_path=None, critic_path=None):
         if not os.path.exists('models/'):
@@ -324,8 +329,7 @@ class SAC(object):
             self.critic.load_state_dict(torch.load(critic_path))
 
 
-scenario_dirs = ["agent_SAC", "memory"]
+scenario_dirs = ["agent_SAC"]
 
 agent_specs = dict.fromkeys(scenario_dirs, None)
 agent_specs["agent_SAC"] = SAC()
-agent_specs["memory"] = ReplayMemory(capacity=1000000, seed=123456)

@@ -349,7 +349,7 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
                 # Get next state.
                 new_observations_for_agent = agent.extract_state(agent_id_list, agents, roads, infos)
                 for key, val in new_observations_for_agent.items():
-                    rewards_list[key] = -sum(val[0:8])
+                    rewards_list[key] = sum(observations_for_agent[key][0:8]) - sum(val[0:8])
                 rewards = rewards_list
 
                 # Remember (state, action, reward, next_state) into memory buffer.

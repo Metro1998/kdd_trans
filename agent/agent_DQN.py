@@ -48,15 +48,15 @@ class TestAgent():
         self.agent_list = []
         self.phase_passablelane = {}
 
-        self.memory = deque(maxlen=2000)
+        self.memory = deque(maxlen=3000)
         self.learning_start = 1000
         self.update_model_freq = 5
         self.update_target_model_freq = 20
 
         self.gamma = 0.95  # discount rate
-        self.epsilon = 0.4  # exploration rate
+        self.epsilon = 0.5  # exploration rate
         self.epsilon_min = 0.01
-        self.epsilon_decay = 0.95
+        self.epsilon_decay = 0.97
         self.learning_rate = 0.005
         self.batch_size = 32
         self.ob_length = 9
@@ -236,3 +236,4 @@ for i, k in enumerate(scenario_dirs):
     agent_specs[k] = TestAgent()
     # **important**: assign policy builder to your agent spec
     # NOTE: the policy builder must be a callable function which returns an instance of `AgentPolicy`
+    # agent_specs[k].load_model(dir="model/dqn_warm_up",step=49)

@@ -293,7 +293,7 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
         metric_period=metric_period
     )
     scenario = [
-        'test'
+        "agent_SAC", "memory"
     ]
 
     done = False
@@ -308,11 +308,13 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
         agent_id_list.append(int(k.split('_')[0]))
     agent_id_list = list(set(agent_id_list))
     agent = agent_spec[scenario[0]]
+    memory = agent_spec[scenario[1]]
     agent.load_agent_list(agent_id_list)
     agent.load_roadnet(intersections, roads, agents)
     # Here begins the code for training
 
     total_decision_num = 0
+    updates = 0
     env.set_log(0)
     env.set_warning(0)
     env.set_ui(0)
@@ -340,7 +342,11 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
                 else:
                     actions = agent.select_action(observations_for_agent)
 
-                if
+                if len(memory) > 256:
+                    critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = agent.update_parameters(memory,
+                                                                                                         batch_size=256,
+                                                                                                         updates)
+                    updates += 1
 
                 rewards_list = {}
 

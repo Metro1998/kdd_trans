@@ -324,13 +324,8 @@ class SAC(object):
             self.critic.load_state_dict(torch.load(critic_path))
 
 
-scenario_dirs = [
-    "test"
-]
+scenario_dirs = ["agent_SAC", "memory"]
 
 agent_specs = dict.fromkeys(scenario_dirs, None)
-for i, k in enumerate(scenario_dirs):
-    # initialize an AgentSpec instance with configuration
-    agent_specs[k] = SAC(num_inputs=9, action_space=np.array(2,3,4))
-    # **important**: assign policy builder to your agent spec
-    # NOTE: the policy builder must be a callable function which returns an instance of `AgentPolicy`
+agent_specs["agent_SAC"] = SAC()
+agent_specs["memory"] = ReplayMemory(capacity=1000000, seed=123456)

@@ -173,24 +173,24 @@ class SAC(object):
         self.low = 0
         self.high = 8
         self.num_inputs = 8
-        self.num_actions = 8
+        self.action_space = np.array([1, 2, 3, 4, ,5 ,6 ,7, 8])
 
         # memory para
         self.capacity = 1000000
         self.positon = 0
         self.buffer = []
 
-        self.critic = QNetwork(num_inputs, self.num_actions, self.hidden_size).to(self.device)
+        self.critic = QNetwork(self.num_inputs, self.action_space.shape[0], self.hidden_size).to(self.device)
         self.critic_optim = Adam(self.critic.parameters(), lr=self.lr)
 
-        self.critic_target = QNetwork(num_inputs, self.num_actions, self.hidden_size).to(self.device)
+        self.critic_target = QNetwork(self.num_inputs, self.action_space.shape[0], self.hidden_size).to(self.device)
         hard_update(self.critic_target, self.critic)
 
-        self.target_entropy = -torch.prod(torch.Tensor(action_space.shape).to(self.device)).item()  # TODO
+        self.target_entropy = -torch.prod(torch.Tensor(self.action_space.shape).to(self.device)).item()
         self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
         self.alpha_optim = Adam([self.log_alpha], lr=self.lr)
 
-        self.policy = GaussianPolicy(num_inputs, self.num_actions, self.hidden_size, self.low, self.high).to(self.device)
+        self.policy = GaussianPolicy(self.num_inputs, self.action_space.shape[0], self.hidden_size, self.low, self.high).to(self.device)
         self.policy_optim = Adam(self.policy.parameters(), lr=self.lr)
 
     def extract_state(self, agent_id_list: list, agents: dict, roads: dict, infos: dict):

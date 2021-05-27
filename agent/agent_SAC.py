@@ -107,7 +107,7 @@ class QNetwork(nn.Module):
 
 
 class GaussianPolicy(nn.Module):
-    def __init__(self, num_inputs, num_actions, hidden_dim, low, high):
+    def __init__(self, num_inputs, num_actions, hidden_dim, action_space):
         super(GaussianPolicy, self).__init__()
 
         self.linear1 = nn.Linear(num_inputs, hidden_dim)
@@ -117,13 +117,11 @@ class GaussianPolicy(nn.Module):
         self.log_std_linear = nn.Linear(hidden_dim, num_actions)
 
         self.apply(weights_init_)
+        self.high = np.array([max(action_space)])
+        self.low = np.array([min(action_space)])
 
-        self.high = high
-        self.low = low
-        self.action_scale = torch.FloatTensor(
-            (high - low) / 2.)
-        self.action_bias = torch.FloatTensor(
-            (high + low) / 2.)
+        self.action_scale = torch.FloatTensor((self.high-self.low) / 2.)
+        self.action_bias = torch.FloatTensor((self.high + self.low) / 2.)
 
     def forward(self, state):
         x = F.relu(self.linear1(state))
@@ -152,16 +150,19 @@ class GaussianPolicy(nn.Module):
         mean = torch.tanh(mean) * self.action_scale + self.action_bias
         return action, log_prob, mean
 
+    def to(self, device):
+        self.action_scale = self.action_scale.to(device)
+        self.action_bias = self.action_bias.to(device)
+        return super(GaussianPolicy, self).to(device)
+
 
 """
 agent_SAC
 """
 
 
-class SAC(object):
+class SAC():
     def __init__(self):
-        super(self, SAC).__init__()
-        # TODO: fill the para
 
         self.gamma = 0.99
         self.tau = 0.005
@@ -174,7 +175,7 @@ class SAC(object):
         self.low = 0
         self.high = 8
         self.num_inputs = 8
-        self.action_space = np.array([1, 2, 3, 4, ,5 ,6 ,7, 8])
+        self.action_space = np.array([1, 2, 3, 4, 5, 6, 7, 8])
 
         # memory para
         self.capacity = 1000000
@@ -191,7 +192,8 @@ class SAC(object):
         self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
         self.alpha_optim = Adam([self.log_alpha], lr=self.lr)
 
-        self.policy = GaussianPolicy(self.num_inputs, self.action_space.shape[0], self.hidden_size, self.low, self.high).to(self.device)
+        self.policy = GaussianPolicy(self.num_inputs, self.action_space.shape[0], self.hidden_size, self.action_space)\
+            .to(self.device)
         self.policy_optim = Adam(self.policy.parameters(), lr=self.lr)
 
     def extract_state(self, agent_id_list: list, agents: dict, roads: dict, infos: dict):
@@ -329,8 +331,13 @@ class SAC(object):
         if critic_path is not None:
             self.critic.load_state_dict(torch.load(critic_path))
 
-
-scenario_dirs = ["agent_SAC"]
+scenario_dirs = [
+    "test"
+]
 
 agent_specs = dict.fromkeys(scenario_dirs, None)
-agent_specs["agent_SAC"] = SAC()
+for i, k in enumerate(scenario_dirs):
+    # initialize an AgentSpec instance with configuration
+    agent_specs[k] = SAC()
+    # **important**: assign policy builder to your agent spec
+    # NOTE: the policy builder must be a callable function which returns an instance of `AgentPolicy`

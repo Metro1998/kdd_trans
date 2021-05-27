@@ -1,6 +1,3 @@
-import datetime
-
-import CBEngine
 import json
 import traceback
 import argparse
@@ -9,7 +6,6 @@ import os
 import sys
 import time
 from pathlib import Path
-import re
 import gym
 import numpy as np
 
@@ -294,7 +290,7 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
         metric_period=metric_period
     )
     scenario = [
-        "agent_SAC", "memory"
+        "test"
     ]
 
     done = False
@@ -340,7 +336,7 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
                 if total_decision_num < 10000:
                     actions = env.action_space.sample() #TODO
                 else:
-                    actions = agent.select_action(observations_for_agent)
+                    actions = agent.
 
                 if agent. > 256:
                     critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = agent.update_parameters(memory,

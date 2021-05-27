@@ -180,7 +180,8 @@ class TestAgent():
 
         model = Sequential()
         model.add(Dense(20, input_dim=self.ob_length, activation='relu'))
-        # model.add(Dense(20, activation='relu'))
+        model.add(Dense(40, activation='relu'))
+        model.add(Dense(20, activation='relu'))
         model.add(Dense(self.action_space, activation='linear'))
         model.compile(
             loss='mse',

@@ -1,3 +1,6 @@
+import datetime
+
+import CBEngine
 import json
 import traceback
 import argparse
@@ -6,11 +9,9 @@ import os
 import sys
 import time
 from pathlib import Path
-from random import random
-
+import re
 import gym
 import numpy as np
-
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__file__)
@@ -341,9 +342,13 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
                 # Get the action, note that we use select_action() for training.
                 # print("observations_for_agent:{}".format(observations_for_agent))
                 if total_decision_num < 10000:
-                    actions = random.randit(1,8)
+                    actions_int = np.random.randint(1,8)
                 else:
-                    actions = agent.select_action(observations_for_agent)
+                    actions_int = agent.select_action(observations_for_agent)
+
+                actions = {}
+                for agent_id in agent_id_list:
+                    actions
 
                 # parameters update, the process of sampling is included
                 if len(memory) > 256:

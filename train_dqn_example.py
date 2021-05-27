@@ -318,10 +318,10 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
     env.set_ui(0)
     # env.set_info(0)
     # agent.load_model(args.save_dir, 199)
-
+    flag = 1
     # The main loop
     for e in range(args.episodes):
-        print("----------------------------------------------------{}/{}".format(e, args.episodes))
+        print("\n----------------------------------------------------{}/{}".format(e, args.episodes))
         observations, infos = env.reset()
         episodes_rewards = {}
         for agent_id in agent_id_list:
@@ -331,7 +331,9 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
         # Begins one simulation.
         i = 0
         while i < args.steps:
-            print("------------------------------{}/{}".format(i, args.steps))
+            print("\r" + "=" * (i//2) + "> | {:.2%} | average travel time:{}".
+                  format(i / 100, env.eng.get_average_travel_time()), end="")
+            sys.stdout.flush()
             if i % args.action_interval == 0:
                 # Get the action, note that we use act_() for training.
                 # print("observations_for_agent:{}".format(observations_for_agent))
@@ -364,7 +366,9 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
                 # print("reward:{},".format(rewards))
             # Update the network
             if total_decision_num > agent.learning_start and total_decision_num % agent.update_model_freq == agent.update_model_freq - 1:
-                print("Total decision num:{} replaying...........".format(total_decision_num))
+                if flag is True:
+                    print("Total decision num:{} training...........".format(total_decision_num))
+                    flag = 0
                 agent.replay()
             if total_decision_num > agent.learning_start and total_decision_num % agent.update_target_model_freq == agent.update_target_model_freq - 1:
                 agent.update_target_network()
@@ -376,10 +380,10 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
             agent.save_model(args.save_dir, e)
         logger.info(
             "episode:{}/{}, average travel time:{}".format(e, args.episodes, env.eng.get_average_travel_time()))
-        for agent_id in agent_id_list:
-            logger.info(
-                "agent:{}, mean_episode_reward:{}".format(agent_id,
-                                                          episodes_rewards[agent_id] / episodes_decision_num))
+        # for agent_id in agent_id_list:
+        #     logger.info(
+        #         "agent:{}, mean_episode_reward:{}".format(agent_id,
+        #                                                   episodes_rewards[agent_id] / episodes_decision_num))
 
 
 def run_simulation(agent_spec, simulator_cfg_file, gym_cfg, metric_period, scores_dir, threshold):
@@ -567,7 +571,7 @@ if __name__ == "__main__":
     parser.add_argument('--thread', type=int, default=8, help='number of threads')
     parser.add_argument('--steps', type=int, default=360, help='number of steps')
     parser.add_argument('--action_interval', type=int, default=2, help='how often agent make decisions')
-    parser.add_argument('--episodes', type=int, default=100, help='training episodes')
+    parser.add_argument('--episodes', type=int, default=50, help='training episodes')
 
     parser.add_argument('--save_model', action="store_true", default=False)
     parser.add_argument('--load_model', action="store_true", default=False)

@@ -6,6 +6,8 @@ import os
 import sys
 import time
 from pathlib import Path
+from random import random
+
 import gym
 import numpy as np
 
@@ -75,7 +77,7 @@ def load_agent_submission(submission_dir: Path):
 
     # This will fail w/ an import error of the submissions directory does not exist
     import gym_cfg as gym_cfg_submission
-    import agent_SAC as agent_submission
+    import agent_SAC as agent_submission # TODO
 
     gym_cfg_instance = gym_cfg_submission.gym_cfg()
 
@@ -290,7 +292,7 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
         metric_period=metric_period
     )
     scenario = [
-        "test"
+        "agent_SAC", "memory"
     ]
 
     done = False
@@ -305,12 +307,15 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
         agent_id_list.append(int(k.split('_')[0]))
     agent_id_list = list(set(agent_id_list))
     agent = agent_spec[scenario[0]]
+    memory = agent_spec[scenario[1]]
     agent.load_agent_list(agent_id_list)
     agent.load_roadnet(intersections, roads, agents)
     # Here begins the code for training
 
     total_decision_num = 0
     updates = 0
+    batch_size = 256
+
     env.set_log(0)
     env.set_warning(0)
     env.set_ui(0)
@@ -321,11 +326,13 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
     for e in range(args.episodes):
         print("----------------------------------------------------{}/{}".format(e, args.episodes))
         observations, infos = env.reset()
+
+        episodes_decision_num = 0
         episodes_rewards = {}
         for agent_id in agent_id_list:
             episodes_rewards[agent_id] = 0
         observations_for_agent = agent.extract_state(agent_id_list, agents, roads, infos)
-        episodes_decision_num = 0
+
         # Begins one simulation.
         i = 0
         while i < args.steps:
@@ -334,17 +341,16 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
                 # Get the action, note that we use select_action() for training.
                 # print("observations_for_agent:{}".format(observations_for_agent))
                 if total_decision_num < 10000:
-                    actions = env.action_space.sample() #TODO
+                    actions = random.randit(1,8)
                 else:
-                    actions = agent.
+                    actions = agent.select_action(observations_for_agent)
 
-                if agent. > 256:
+                # parameters update, the process of sampling is included
+                if len(memory) > 256:
                     critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = agent.update_parameters(memory,
-                                                                                                         batch_size=256,
+                                                                                                         batch_size,
                                                                                                          updates)
                     updates += 1
-
-                rewards_list = {}
 
                 # We keep the same action for a certain time
                 for _ in range(args.action_interval):
@@ -360,9 +366,9 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
                     rewards_list[key] = -sum(val[0:8])
                 rewards = rewards_list
 
-                # Remember (state, action, reward, next_state) into memory buffer. # TODO
+                # Remember (state, action, reward, next_state) into memory buffer.
                 for agent_id in agent_id_list:
-                    agent.remember(observations_for_agent[agent_id], actions[agent_id] - 1, rewards[agent_id],
+                    memory.push(observations_for_agent[agent_id], actions[agent_id] - 1, rewards[agent_id],
                                    new_observations_for_agent[agent_id])
                     episodes_rewards[agent_id] += rewards[agent_id]
                 episodes_decision_num += 1
@@ -371,12 +377,6 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
                 observations_for_agent = new_observations_for_agent
                 # print("reward:{},".format(rewards))
 
-            # Update the network # TODO
-            if total_decision_num > agent.learning_start and total_decision_num % agent.update_model_freq == agent.update_model_freq - 1:
-                print("Total decision num:{} replaying...........".format(total_decision_num))
-                agent.replay()
-            if total_decision_num > agent.learning_start and total_decision_num % agent.update_target_model_freq == agent.update_target_model_freq - 1:
-                agent.update_target_network()
             if all(dones.values()):
                 break
         if e % args.save_rate == args.save_rate - 1:

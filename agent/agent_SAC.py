@@ -120,7 +120,7 @@ class GaussianPolicy(nn.Module):
         self.high = np.array([max(action_space)])
         self.low = np.array([min(action_space)])
 
-        self.action_scale = torch.FloatTensor((self.high-self.low) / 2.)
+        self.action_scale = torch.FloatTensor((self.high - self.low) / 2.)
         self.action_bias = torch.FloatTensor((self.high + self.low) / 2.)
 
     def forward(self, state):
@@ -139,8 +139,8 @@ class GaussianPolicy(nn.Module):
         y_t = torch.tanh(x_t)
         action = y_t * self.action_scale + self.action_bias
         for i in range(self.low, self.high, 1):
-            if i <= action < i+1:
-                action = i+1
+            if i <= action < i + 1:
+                action = i + 1
             else:
                 pass
         log_prob = normal.log_prob(x_t)
@@ -154,6 +154,33 @@ class GaussianPolicy(nn.Module):
         self.action_scale = self.action_scale.to(device)
         self.action_bias = self.action_bias.to(device)
         return super(GaussianPolicy, self).to(device)
+
+
+"""
+memory
+"""
+
+
+class ReplayMemory:
+    def __init__(self):
+        random.seed(123456)
+        self.capacity = 1000000
+        self.buffer = []
+        self.position = 0
+
+    def push(self, state, action, reward, next_state, done):
+        if len(self.buffer) < self.capacity:
+            self.buffer.append(None)
+        self.buffer[self.position] = (state, action, reward, next_state, done)
+        self.position = (self.position + 1) % self.capacity
+
+    def sample(self, batch_size):
+        batch = random.sample(self.buffer, batch_size)
+        state, action, reward, next_state, done = map(np.stack, zip(*batch))
+        return state, action, reward, next_state, done
+
+    def __len__(self):
+        return len(self.buffer)
 
 
 """
@@ -192,7 +219,7 @@ class SAC():
         self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
         self.alpha_optim = Adam([self.log_alpha], lr=self.lr)
 
-        self.policy = GaussianPolicy(self.num_inputs, self.action_space.shape[0], self.hidden_size, self.action_space)\
+        self.policy = GaussianPolicy(self.num_inputs, self.action_space.shape[0], self.hidden_size, self.action_space) \
             .to(self.device)
         self.policy_optim = Adam(self.policy.parameters(), lr=self.lr)
 
@@ -284,21 +311,6 @@ class SAC():
 
         return qf1_loss.item(), qf2_loss.item(), policy_loss.item(), alpha_loss.item(), alpha_tlogs.item()
 
-    # memory relative
-    def push(self, state, action, reward, next_state, done):
-        if len(self.buffer) < self.capacity:
-            self.buffer.append(None)
-        self.buffer[self.position] = (state, action, reward, next_state, done)
-        self.position = (self.position + 1) % self.capacity
-
-    def sample(self, batch_size):
-        batch = random.sample(self.buffer, batch_size)
-        state, action, reward, next_state, done = map(np.stack, zip(*batch))
-        return state, action, reward, next_state, done
-
-    def __len__(self):
-        return len(self.buffer)
-
     # env relative
     def load_agent_list(self, agent_list):
         self.agent_list = agent_list
@@ -331,13 +343,12 @@ class SAC():
         if critic_path is not None:
             self.critic.load_state_dict(torch.load(critic_path))
 
+
 scenario_dirs = [
-    "test"
+    "agent_SAC", "memory"
 ]
 
 agent_specs = dict.fromkeys(scenario_dirs, None)
-for i, k in enumerate(scenario_dirs):
-    # initialize an AgentSpec instance with configuration
-    agent_specs[k] = SAC()
-    # **important**: assign policy builder to your agent spec
-    # NOTE: the policy builder must be a callable function which returns an instance of `AgentPolicy`
+agent_specs[scenario_dirs[0]] = SAC()
+agent_specs[scenario_dirs[1]] = ReplayMemory()
+

@@ -1,10 +1,8 @@
-import numpy as np
+scenario_dirs = [
+    "agent_SAC", "memory"
+]
 
-a = np.array([1, 2, 3])
-b = max(a)
-c = min(a)
-print(b)
-print(c)
-
-d = np.array(1)
-print(d)
+agent_specs = dict.fromkeys(scenario_dirs, None)
+agent_specs[scenario_dirs[0]] = 1
+agent_specs[scenario_dirs[1]] = 2
+print(agent_specs)

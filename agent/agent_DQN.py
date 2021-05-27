@@ -28,9 +28,9 @@ import os
 from collections import deque
 import numpy as np
 from keras.layers.merge import concatenate
-from keras.layers import Input, Dense, Conv2D, Flatten
+from keras.layers import Input, Dense, Conv2D, Flatten, Lambda
 from keras.models import Model
-
+import keras.backend as K
 
 # contains all of the intersections
 
@@ -64,11 +64,12 @@ class TestAgent():
         self.action_space = 8
 
         self.model = self._build_model()
-
+        self.model.compile(Adam(self.learning_rate), 'mse')
         # Remember to uncomment the following lines when submitting, and submit your model file as well.
         # path = os.path.split(os.path.realpath(__file__))[0]
         # self.load_model(path, 99)
         self.target_model = self._build_model()
+        self.target_model.compile(Adam(self.learning_rate), 'mse')
         self.update_target_network()
 
     ################################
@@ -177,17 +178,14 @@ class TestAgent():
     def _build_model(self):
 
         # Neural Net for Deep-Q learning Model
-
-        model = Sequential()
-        model.add(Dense(20, input_dim=self.ob_length, activation='relu'))
-        model.add(Dense(40, activation='relu'))
-        model.add(Dense(20, activation='relu'))
-        model.add(Dense(self.action_space, activation='linear'))
-        model.compile(
-            loss='mse',
-            optimizer=RMSprop()
-        )
-        return model
+        inp = Input(self.ob_length)
+        x = Flatten()(inp)
+        x = Dense(64, activation='relu')(x)
+        x = Dense(64, activation='relu')(x)
+        x = Dense(self.action_space + 1, activation='linear')(x)
+        x = Lambda(lambda i: K.expand_dims(i[:, 0], -1) + i[:, 1:] - K.mean(i[:, 1:], keepdims=True),
+                   output_shape=(self.action_space,))(x)
+        return Model(inp, x)
 
     def _reshape_ob(self, ob):
         return np.reshape(ob, (1, -1))

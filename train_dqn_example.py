@@ -326,13 +326,13 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
         episodes_rewards = {}
         for agent_id in agent_id_list:
             episodes_rewards[agent_id] = 0
-        observations_for_agent = agent.extract_state(agent_id_list, agents, roads, infos)
+        observations_for_agent = agent.extract_state(agent_id_list, agents, roads, infos, observations)
         episodes_decision_num = 0
         # Begins one simulation.
         i = 0
         while i < args.steps:
-            print("\r" + "=" * (i//2) + "> | {:.2%} | average travel time:{}".
-                  format(i / 100, env.eng.get_average_travel_time()), end="")
+            print("\r" + "=" * (i*5//36) + "> | {:.2%} | average travel time:{}".
+                  format(i / args.steps, env.eng.get_average_travel_time()), end="")
             sys.stdout.flush()
             if i % args.action_interval == 0:
                 # Get the action, note that we use act_() for training.
@@ -349,9 +349,9 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
                     _, _, dones, infos = env.step(actions)
 
                 # Get next state.
-                new_observations_for_agent = agent.extract_state(agent_id_list, agents, roads, infos)
+                new_observations_for_agent = agent.extract_state(agent_id_list, agents, roads, infos, observations)
                 for key, val in new_observations_for_agent.items():
-                    rewards_list[key] = sum(observations_for_agent[key][0:8]) - sum(val[0:8])
+                    rewards_list[key] = sum(observations_for_agent[key][8:16]) - sum(val[8:16])
                 rewards = rewards_list
 
                 # Remember (state, action, reward, next_state) into memory buffer.
@@ -379,7 +379,7 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
                 os.makedirs(args.save_dir)
             agent.save_model(args.save_dir, e)
         logger.info(
-            "episode:{}/{}, average travel time:{}".format(e, args.episodes, env.eng.get_average_travel_time()))
+            "\nepisode:{}/{}, average travel time:{}".format(e, args.episodes, env.eng.get_average_travel_time()))
         # for agent_id in agent_id_list:
         #     logger.info(
         #         "agent:{}, mean_episode_reward:{}".format(agent_id,

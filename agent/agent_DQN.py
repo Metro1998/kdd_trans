@@ -32,6 +32,7 @@ from keras.layers import Input, Dense, Conv2D, Flatten, Lambda
 from keras.models import Model
 import keras.backend as K
 
+
 # contains all of the intersections
 
 
@@ -48,7 +49,7 @@ class TestAgent():
         self.agent_list = []
         self.phase_passablelane = {}
 
-        self.memory = deque(maxlen=3000)
+        self.memory = deque(maxlen=4000)
         self.learning_start = 1000
         self.update_model_freq = 5
         self.update_target_model_freq = 20
@@ -59,7 +60,7 @@ class TestAgent():
         self.epsilon_decay = 0.97
         self.learning_rate = 0.005
         self.batch_size = 32
-        self.ob_length = 9
+        self.ob_length = 17
 
         self.action_space = 8
 
@@ -103,8 +104,9 @@ class TestAgent():
         self.agents = agents
 
     ################################
-    def extract_state(self, agent_id_list: list, agents: dict, roads: dict, infos: dict):
+    def extract_state(self, agent_id_list: list, agents: dict, roads: dict, infos: dict, observation: dict):
         # Define our state
+        # get the number of vehicles in a specific length
         vehicle_in_road = {}
         for i in range(1, 6045):
             vehicle_in_road[i] = [0, 0, 0]
@@ -112,7 +114,7 @@ class TestAgent():
             road_id = infos[key]["road"][0]
             lane_id = infos[key]["drivable"][0]
             if roads[road_id]["length"] - infos[key]["distance"][0] < roads[road_id][
-                "speed_limit"] * 10:
+                "speed_limit"] * 20:
                 if lane_id == road_id * 100 + 0:
                     vehicle_in_road[int(road_id)][0] += 1
                 elif lane_id == road_id * 100 + 1:
@@ -121,15 +123,25 @@ class TestAgent():
                     vehicle_in_road[int(road_id)][2] += 1
             else:
                 pass
+
         observations_for_agent = {}
         for observations_agent_id in agent_id_list:
-            # the last zero is now_phase
-            observations_for_agent[observations_agent_id] = [0, 0, 0, 0, 0, 0, 0, 0, 0]
+            # observations_for_agent:
+            # The first eight are the number of vehicles in the lane,
+            # The middle eight are the lane density,
+            # The last is now_phase.
+            observations_for_agent[observations_agent_id] = [0 for ii in range(17)]
             inroads_of_agent = agents[observations_agent_id][0:4]
+            observations_for_agent[observations_agent_id][0:8] = observation["{}_lane_vehicle_num".format(
+                observations_agent_id)][1:9]
             for i in range(0, 8, 2):
                 if inroads_of_agent[int(i / 2)] != -1:
-                    observations_for_agent[observations_agent_id][i] = vehicle_in_road[inroads_of_agent[int(i / 2)]][0]
-                    observations_for_agent[observations_agent_id][i + 1] = vehicle_in_road[inroads_of_agent[int(i / 2)]][1]
+                    observations_for_agent[observations_agent_id][i] /= roads[inroads_of_agent[i // 2]]["length"]
+                    observations_for_agent[observations_agent_id][i + 1] /= roads[inroads_of_agent[i // 2]]["length"]
+                    observations_for_agent[observations_agent_id][i + 8] = \
+                    vehicle_in_road[inroads_of_agent[int(i / 2)]][0]
+                    observations_for_agent[observations_agent_id][i + 9] = \
+                        vehicle_in_road[inroads_of_agent[int(i / 2)]][1]
                 else:
                     pass
             observations_for_agent[observations_agent_id][-1] = self.now_phase[observations_agent_id]
@@ -147,10 +159,11 @@ class TestAgent():
 
     def act(self, obs):
         info = obs['info']
+        observations = obs["observations"]
         actions = {}
 
         # Get state
-        observations_for_agent = self.extract_state(self.agent_list, self.agents, self.roads, info)
+        observations_for_agent = self.extract_state(self.agent_list, self.agents, self.roads, info, observations)
 
         # Get actions
         for agent in self.agent_list:
@@ -178,9 +191,9 @@ class TestAgent():
     def _build_model(self):
 
         # Neural Net for Deep-Q learning Model
-        inp = Input(self.ob_length)
-        x = Flatten()(inp)
-        x = Dense(64, activation='relu')(x)
+        length = (self.ob_length,)
+        inp = Input((length))
+        x = Dense(64, activation='relu')(inp)
         x = Dense(64, activation='relu')(x)
         x = Dense(self.action_space + 1, activation='linear')(x)
         x = Lambda(lambda i: K.expand_dims(i[:, 0], -1) + i[:, 1:] - K.mean(i[:, 1:], keepdims=True),
@@ -235,4 +248,4 @@ for i, k in enumerate(scenario_dirs):
     agent_specs[k] = TestAgent()
     # **important**: assign policy builder to your agent spec
     # NOTE: the policy builder must be a callable function which returns an instance of `AgentPolicy`
-    # agent_specs[k].load_model(dir="model/dqn_warm_up",step=49)
+    # agent_specs[k].load_model(dir="model/dqn_warm_up", step=19)

@@ -199,7 +199,7 @@ class TestAgent():
     def get_error(self, obs, new_obs, action, reward):
         obs = self._reshape_ob(obs)
         new_obs = self._reshape_ob(new_obs)
-        error = abs(np.argmax(self.target_model.predict([new_obs])) + reward - self.model.predict([obs])[action])
+        error = abs(np.argmax(self.target_model.predict([new_obs])) + reward - self.model.predict([obs])[0][action])
 
         return error
 

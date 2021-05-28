@@ -350,9 +350,9 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
                 else:
                     actions = agent._act(observations_for_agent)
 
-
                     # parameters update, the process of sampling is included
                 print(len(memory))
+
                 if len(memory) > 64:
                     critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = agent.update_parameters(memory,
                                                                                                          batch_size,

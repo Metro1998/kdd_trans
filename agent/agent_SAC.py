@@ -182,7 +182,7 @@ class SAC():
         self.gamma = 0.99
         self.tau = 0.005
         self.alpha = 0.2
-        self.lr = 0.0003
+        self.lr = 0.005
 
         self.target_update_interval = 1
         self.device = torch.device("cpu")
@@ -246,12 +246,12 @@ class SAC():
     def select_action(self, state):
         state = torch.FloatTensor(state).to(self.device).unsqueeze(0)
         action, _, _ = self.policy.sample(state)
-        return action.detach().cpu().numpy()[0]
+        return action.item()
 
     def _act(self, observations_for_agent):
         actions = {}
         for agent_id in self.agent_list:
-            actions[agent_id] = self.select_action(observations_for_agent[agent_id]) // 1 + 1
+            actions[agent_id] = int(self.select_action(observations_for_agent[agent_id]) // 1 + 1)
             self.now_phase[agent_id] = actions[agent_id]
         return actions
 
@@ -264,7 +264,6 @@ class SAC():
         next_state_batch = torch.FloatTensor(next_state_batch).to(self.device)
         action_batch = torch.FloatTensor(action_batch).to(self.device)
         reward_batch = torch.FloatTensor(reward_batch).to(self.device).unsqueeze(1)
-
 
         with torch.no_grad():
             next_state_action, next_state_log_pi, _ = self.policy.sample(next_state_batch)

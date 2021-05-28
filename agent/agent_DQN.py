@@ -58,7 +58,7 @@ class TestAgent():
         self.epsilon = 0.8  # exploration rate
         self.epsilon_min = 0.01
         self.epsilon_decay = 0.99
-        self.learning_rate = 0.005
+        self.learning_rate = 0.01
         self.with_per = 1
         self.batch_size = 512
         self.ob_length = 17

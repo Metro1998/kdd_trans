@@ -344,14 +344,16 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
                 # when the total_decision_num < 10000, sample randomly from 1-8
                 # Or we will sample according to the Gaussian policy
                 actions = {}
-                for agent_id in agent_id_list:
-                    if total_decision_num < 10000:
+                if total_decision_num < 10:
+                    for agent_id in agent_id_list:
                         actions[agent_id] = np.random.randint(1, 8)
-                    else:
-                        actions[agent_id] = agent._action(observations_for_agent)
+                else:
+                    actions = agent._act(observations_for_agent)
 
-                # parameters update, the process of sampling is included
-                if len(memory) > 256:
+
+                    # parameters update, the process of sampling is included
+                print(len(memory))
+                if len(memory) > 64:
                     critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = agent.update_parameters(memory,
                                                                                                          batch_size,
                                                                                                          updates)

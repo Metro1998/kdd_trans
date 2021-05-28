@@ -186,7 +186,7 @@ class SAC():
 
         self.target_update_interval = 1
         self.device = torch.device("cpu")
-        self.hidden_size = 256
+        self.hidden_size = 64
         self.low = 0
         self.high = 8
         self.num_inputs = 9
@@ -259,7 +259,7 @@ class SAC():
         # Sample a batch from memory
         state_batch, action_batch, reward_batch, next_state_batch = memory.sample(batch_size=batch_size)
         action_batch = np.expand_dims(action_batch, axis=1)
-        print(action_batch.shape)
+
         state_batch = torch.FloatTensor(state_batch).to(self.device)
         next_state_batch = torch.FloatTensor(next_state_batch).to(self.device)
         action_batch = torch.FloatTensor(action_batch).to(self.device)

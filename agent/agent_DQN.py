@@ -58,7 +58,7 @@ class TestAgent():
         self.epsilon = 0.8  # exploration rate
         self.epsilon_min = 0.01
         self.epsilon_decay = 0.99
-        self.learning_rate = 0.01
+        self.learning_rate = 0.0075
         self.with_per = 1
         self.batch_size = 512
         self.ob_length = 17
@@ -299,4 +299,4 @@ for i, k in enumerate(scenario_dirs):
     agent_specs[k] = TestAgent()
     # **important**: assign policy builder to your agent spec
     # NOTE: the policy builder must be a callable function which returns an instance of `AgentPolicy`
-    # agent_specs[k].load_model(dir="model/dqn_warm_up", step=4)
+    agent_specs[k].load_model(dir="model/dqn_warm_up", step=9)

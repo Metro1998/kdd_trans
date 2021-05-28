@@ -279,7 +279,7 @@ def process_score(log_path, roads, step, scores_dir):
     return result_write['data']['total_served_vehicles'], result_write['data']['delay_index']
 
 
-def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
+def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period, scores_dir, threshold):
     logger.info("\n")
     logger.info("*" * 40)
 
@@ -383,6 +383,8 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
             if not os.path.exists(args.save_dir):
                 os.makedirs(args.save_dir)
             agent.save_model(args.save_dir, e)
+        if e % args.run_simulation_rate == args.run_simulation_rate - 1:
+            run_simulation(agent_spec, simulator_cfg_file, gym_cfg, metric_period, scores_dir, threshold)
         # logger.info(
         #     "episode:{}/{}, average travel time:{}".format(e, args.episodes, env.eng.get_average_travel_time()))
         # for agent_id in agent_id_list:
@@ -576,12 +578,14 @@ if __name__ == "__main__":
     parser.add_argument('--thread', type=int, default=8, help='number of threads')
     parser.add_argument('--steps', type=int, default=360, help='number of steps')
     parser.add_argument('--action_interval', type=int, default=2, help='how often agent make decisions')
-    parser.add_argument('--episodes', type=int, default=10, help='training episodes')
+    parser.add_argument('--episodes', type=int, default=50, help='training episodes')
 
     parser.add_argument('--save_model', action="store_true", default=False)
     parser.add_argument('--load_model', action="store_true", default=False)
     parser.add_argument("--save_rate", type=int, default=5,
                         help="save model once every time this many episodes are completed")
+    parser.add_argument("--run_simulation_rate", type=int, default=5,
+                        help="run simulation once every time this many episodes are completed")
     parser.add_argument('--save_dir', type=str, default="model/dqn_warm_up",
                         help='directory in which model should be saved')
     parser.add_argument('--log_dir', type=str, default="cmd_log/dqn_warm_up",
@@ -627,7 +631,7 @@ if __name__ == "__main__":
     # simulation
     start_time = time.time()
     try:
-        train(agent_spec, simulator_cfg_file, gym_cfg, metric_period)
+        train(agent_spec, simulator_cfg_file, gym_cfg, metric_period, scores_dir, threshold)
         scores = run_simulation(agent_spec, simulator_cfg_file, gym_cfg, metric_period, scores_dir, threshold)
     except Exception as e:
         msg = format_exception(e)

@@ -50,7 +50,7 @@ class TestAgent():
         self.phase_passablelane = {}
 
         self.memory = deque(maxlen=500000)
-        self.learning_start = 1
+        self.learning_start = 720
         self.update_model_freq = 1
         self.update_target_model_freq = 20
         self.tau = 1e-2
@@ -58,7 +58,7 @@ class TestAgent():
         self.epsilon = 0.8  # exploration rate
         self.epsilon_min = 0.01
         self.epsilon_decay = 0.99
-        self.learning_rate = 0.01
+        self.learning_rate = 0.005
         self.with_per = 1
         self.batch_size = 512
         self.ob_length = 17
@@ -196,10 +196,10 @@ class TestAgent():
         act_values = self.model.predict([ob])
         return np.argmax(act_values[0])
 
-    def get_error(self, obs, new_obs, reward):
+    def get_error(self, obs, new_obs, action, reward):
         obs = self._reshape_ob(obs)
         new_obs = self._reshape_ob(new_obs)
-        error = abs(np.argmax(self.target_model.predict([new_obs])) + reward - np.argmax(self.model.predict([obs])))
+        error = abs(np.argmax(self.target_model.predict([new_obs])) + reward - self.model.predict([obs])[action])
 
         return error
 
@@ -299,4 +299,4 @@ for i, k in enumerate(scenario_dirs):
     agent_specs[k] = TestAgent()
     # **important**: assign policy builder to your agent spec
     # NOTE: the policy builder must be a callable function which returns an instance of `AgentPolicy`
-    agent_specs[k].load_model(dir="model/dqn_warm_up", step=4)
+    # agent_specs[k].load_model(dir="model/dqn_warm_up", step=4)

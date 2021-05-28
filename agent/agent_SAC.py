@@ -107,7 +107,7 @@ class QNetwork(nn.Module):
 
 
 class GaussianPolicy(nn.Module):
-    def __init__(self, num_inputs, num_actions, hidden_dim, action_space):
+    def __init__(self, num_inputs, num_actions, hidden_dim):
         super(GaussianPolicy, self).__init__()
 
         self.linear1 = nn.Linear(num_inputs, hidden_dim)
@@ -117,11 +117,9 @@ class GaussianPolicy(nn.Module):
         self.log_std_linear = nn.Linear(hidden_dim, num_actions)
 
         self.apply(weights_init_)
-        self.high = np.array([max(action_space)])
-        self.low = np.array([min(action_space)])
 
-        self.action_scale = torch.FloatTensor((self.high - self.low) / 2.)
-        self.action_bias = torch.FloatTensor((self.high + self.low) / 2.)
+        self.action_scale = 4
+        self.action_bias = 4
 
     def forward(self, state):
         x = F.relu(self.linear1(state))
@@ -137,23 +135,13 @@ class GaussianPolicy(nn.Module):
         normal = Normal(mean, std)
         x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
         y_t = torch.tanh(x_t)
-        action = y_t * self.action_scale + self.action_bias
-        for i in range(self.low, self.high, 1):
-            if i <= action < i + 1:
-                action = i + 1
-            else:
-                pass
+        action = self.action_scale * y_t + self.action_bias
         log_prob = normal.log_prob(x_t)
         # Enforcing Action Bound
         log_prob -= torch.log(self.action_scale * (1 - y_t.pow(2)) + epsilon)
         log_prob = log_prob.sum(1, keepdim=True)
         mean = torch.tanh(mean) * self.action_scale + self.action_bias
         return action, log_prob, mean
-
-    def to(self, device):
-        self.action_scale = self.action_scale.to(device)
-        self.action_bias = self.action_bias.to(device)
-        return super(GaussianPolicy, self).to(device)
 
 
 """
@@ -168,16 +156,16 @@ class ReplayMemory:
         self.buffer = []
         self.position = 0
 
-    def push(self, state, action, reward, next_state, done):
+    def push(self, state, action, reward, next_state):
         if len(self.buffer) < self.capacity:
             self.buffer.append(None)
-        self.buffer[self.position] = (state, action, reward, next_state, done)
+        self.buffer[self.position] = (state, action, reward, next_state)
         self.position = (self.position + 1) % self.capacity
 
     def sample(self, batch_size):
         batch = random.sample(self.buffer, batch_size)
-        state, action, reward, next_state, done = map(np.stack, zip(*batch))
-        return state, action, reward, next_state, done
+        state, action, reward, next_state = map(np.stack, zip(*batch))
+        return state, action, reward, next_state
 
     def __len__(self):
         return len(self.buffer)
@@ -201,8 +189,8 @@ class SAC():
         self.hidden_size = 256
         self.low = 0
         self.high = 8
-        self.num_inputs = 8
-        self.action_space = np.array([1, 2, 3, 4, 5, 6, 7, 8])
+        self.num_inputs = 9
+        self.action_space = np.array([[1, 2, 3, 4, 5, 6, 7, 8]])
 
         # memory para
         self.capacity = 1000000
@@ -219,8 +207,7 @@ class SAC():
         self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
         self.alpha_optim = Adam([self.log_alpha], lr=self.lr)
 
-        self.policy = GaussianPolicy(self.num_inputs, self.action_space.shape[0], self.hidden_size, self.action_space) \
-            .to(self.device)
+        self.policy = GaussianPolicy(self.num_inputs, self.action_space.shape[0], self.hidden_size).to(self.device)
         self.policy_optim = Adam(self.policy.parameters(), lr=self.lr)
 
     def extract_state(self, agent_id_list: list, agents: dict, roads: dict, infos: dict):
@@ -261,21 +248,29 @@ class SAC():
         action, _, _ = self.policy.sample(state)
         return action.detach().cpu().numpy()[0]
 
+    def _act(self, observations_for_agent):
+        actions = {}
+        for agent_id in self.agent_list:
+            actions[agent_id] = self.select_action(observations_for_agent[agent_id]) // 1 + 1
+            self.now_phase[agent_id] = actions[agent_id]
+        return actions
+
     def update_parameters(self, memory, batch_size, updates):
         # Sample a batch from memory
-        state_batch, action_batch, reward_batch, next_state_batch, mask_batch = memory.sample(batch_size=batch_size)
-
+        state_batch, action_batch, reward_batch, next_state_batch = memory.sample(batch_size=batch_size)
+        action_batch = np.expand_dims(action_batch, axis=1)
+        print(action_batch.shape)
         state_batch = torch.FloatTensor(state_batch).to(self.device)
         next_state_batch = torch.FloatTensor(next_state_batch).to(self.device)
         action_batch = torch.FloatTensor(action_batch).to(self.device)
         reward_batch = torch.FloatTensor(reward_batch).to(self.device).unsqueeze(1)
-        mask_batch = torch.FloatTensor(mask_batch).to(self.device).unsqueeze(1)
+
 
         with torch.no_grad():
             next_state_action, next_state_log_pi, _ = self.policy.sample(next_state_batch)
             qf1_next_target, qf2_next_target = self.critic_target(next_state_batch, next_state_action)
             min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - self.alpha * next_state_log_pi
-            next_q_value = reward_batch + mask_batch * self.gamma * min_qf_next_target
+            next_q_value = reward_batch +  self.gamma * min_qf_next_target
         qf1, qf2 = self.critic(state_batch,
                                action_batch)  # Two Q-functions to mitigate positive bias in the policy improvement step
         qf1_loss = F.mse_loss(qf1, next_q_value)  # JQ = 𝔼(st,at)~D[0.5(Q1(st,at) - r(st,at) - γ(𝔼st+1~p[V(st+1)]))^2]

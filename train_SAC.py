@@ -78,7 +78,7 @@ def load_agent_submission(submission_dir: Path):
 
     # This will fail w/ an import error of the submissions directory does not exist
     import gym_cfg as gym_cfg_submission
-    import agent_SAC as agent_submission # TODO
+    import agent_SAC as agent_submission  # TODO
 
     gym_cfg_instance = gym_cfg_submission.gym_cfg()
 
@@ -339,16 +339,16 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
         while i < args.steps:
             print("------------------------------{}/{}".format(i, args.steps))
             if i % args.action_interval == 0:
-                # Get the action, note that we use select_action() for training.
-                # print("observations_for_agent:{}".format(observations_for_agent))
-                if total_decision_num < 10000:
-                    actions_int = np.random.randint(1,8)
-                else:
-                    actions_int = agent.select_action(observations_for_agent)
 
+                # Get the actions
+                # when the total_decision_num < 10000, sample randomly from 1-8
+                # Or we will sample according to the Gaussian policy
                 actions = {}
                 for agent_id in agent_id_list:
-                    actions
+                    if total_decision_num < 10000:
+                        actions[agent_id] = np.random.randint(1, 8)
+                    else:
+                        actions[agent_id] = agent._action(observations_for_agent)
 
                 # parameters update, the process of sampling is included
                 if len(memory) > 256:
@@ -356,7 +356,7 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
                                                                                                          batch_size,
                                                                                                          updates)
                     updates += 1
-
+                rewards_list = {}
                 # We keep the same action for a certain time
                 for _ in range(args.action_interval):
                     # print(i)
@@ -374,7 +374,7 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
                 # Remember (state, action, reward, next_state) into memory buffer.
                 for agent_id in agent_id_list:
                     memory.push(observations_for_agent[agent_id], actions[agent_id] - 1, rewards[agent_id],
-                                   new_observations_for_agent[agent_id])
+                                new_observations_for_agent[agent_id])
                     episodes_rewards[agent_id] += rewards[agent_id]
                 episodes_decision_num += 1
                 total_decision_num += 1

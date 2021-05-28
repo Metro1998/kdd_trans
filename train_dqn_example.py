@@ -355,7 +355,7 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
                 for key, val in new_observations_for_agent.items():
                     rewards_list[key] = sum(observations_for_agent[key][8:16]) - sum(val[8:16])
                     error_list[key] = agent.get_error(observations_for_agent[key], new_observations_for_agent[key],
-                                                      rewards_list[key])
+                                                      actions[key] - 1, rewards_list[key])
                 rewards = rewards_list
                 error = error_list
 

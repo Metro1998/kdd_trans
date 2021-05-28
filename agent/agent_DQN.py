@@ -49,17 +49,18 @@ class TestAgent():
         self.agent_list = []
         self.phase_passablelane = {}
 
-        self.memory = deque(maxlen=4000)
-        self.learning_start = 1000
-        self.update_model_freq = 5
+        self.memory = deque(maxlen=100000)
+        self.learning_start = 1
+        self.update_model_freq = 1
         self.update_target_model_freq = 20
-
+        self.tau = 1e-2
         self.gamma = 0.95  # discount rate
-        self.epsilon = 0.5  # exploration rate
+        self.epsilon = 0.8  # exploration rate
         self.epsilon_min = 0.01
-        self.epsilon_decay = 0.97
-        self.learning_rate = 0.005
-        self.batch_size = 32
+        self.epsilon_decay = 0.99
+        self.learning_rate = 0.01
+        self.with_per = 1
+        self.batch_size = 512
         self.ob_length = 17
 
         self.action_space = 8
@@ -130,16 +131,17 @@ class TestAgent():
             # The first eight are the number of vehicles in the lane,
             # The middle eight are the lane density,
             # The last is now_phase.
-            observations_for_agent[observations_agent_id] = [0 for ii in range(17)]
+            observations_for_agent[observations_agent_id] = [0] * 17
             inroads_of_agent = agents[observations_agent_id][0:4]
             observations_for_agent[observations_agent_id][0:8] = observation["{}_lane_vehicle_num".format(
                 observations_agent_id)][1:9]
             for i in range(0, 8, 2):
                 if inroads_of_agent[int(i / 2)] != -1:
-                    observations_for_agent[observations_agent_id][i] /= roads[inroads_of_agent[i // 2]]["length"]
-                    observations_for_agent[observations_agent_id][i + 1] /= roads[inroads_of_agent[i // 2]]["length"]
+                    observations_for_agent[observations_agent_id][i] /= roads[inroads_of_agent[i // 2]]["length"] / 1000
+                    observations_for_agent[observations_agent_id][i + 1] /= roads[inroads_of_agent[i // 2]][
+                                                                                "length"] / 1000
                     observations_for_agent[observations_agent_id][i + 8] = \
-                    vehicle_in_road[inroads_of_agent[int(i / 2)]][0]
+                        vehicle_in_road[inroads_of_agent[int(i / 2)]][0]
                     observations_for_agent[observations_agent_id][i + 9] = \
                         vehicle_in_road[inroads_of_agent[int(i / 2)]][1]
                 else:
@@ -207,24 +209,54 @@ class TestAgent():
         weights = self.model.get_weights()
         self.target_model.set_weights(weights)
 
-    def remember(self, ob, action, reward, next_ob):
-        self.memory.append((ob, action, reward, next_ob))
+    def transfer_weights(self):
+        """ Transfer Weights from Model to Target at rate Tau
+        """
+        W = self.model.get_weights()
+        tgt_W = self.target_model.get_weights()
+        for i in range(len(W)):
+            tgt_W[i] = self.tau * W[i] + (1 - self.tau) * tgt_W[i]
+        self.target_model.set_weights(tgt_W)
+
+    def remember(self, ob, action, reward, next_ob, error):
+        self.memory.append([ob, action, reward, next_ob, error])
 
     def replay(self):
         # Update the Q network from the memory buffer.
-
-        if self.batch_size > len(self.memory):
-            minibatch = self.memory
+        if self.with_per == 0:
+            if self.batch_size > len(self.memory):
+                minibatch = self.memory
+            else:
+                minibatch = random.sample(self.memory, self.batch_size)
+            obs, actions, rewards, next_obs, error = [np.stack(x) for x in np.array(minibatch).T]
+            target = rewards + self.gamma * np.amax(self.target_model.predict([next_obs]), axis=1)
+            target_f = self.model.predict([obs])
+            for i, action in enumerate(actions):
+                target_f[i][action] = target[i]
+            self.model.fit([obs], target_f, epochs=1, verbose=0)
+            if self.epsilon > self.epsilon_min:
+                self.epsilon *= self.epsilon_decay
         else:
-            minibatch = random.sample(self.memory, self.batch_size)
-        obs, actions, rewards, next_obs, = [np.stack(x) for x in np.array(minibatch).T]
-        target = rewards + self.gamma * np.amax(self.target_model.predict([next_obs]), axis=1)
-        target_f = self.model.predict([obs])
-        for i, action in enumerate(actions):
-            target_f[i][action] = target[i]
-        self.model.fit([obs], target_f, epochs=1, verbose=0)
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
+            minibatch = []
+            indx_list = []
+            self.memory = sorted(self.memory, key=lambda x: x[4])
+            error_list = [x[4] for x in self.memory]
+            cumsum_error = np.cumsum(error_list)
+            cumsum_error_p = cumsum_error / cumsum_error[-1]
+            for i in range(self.batch_size):
+                a = random.uniform(0, cumsum_error_p[-1])
+                indx = np.searchsorted(cumsum_error_p, a)
+                indx_list.append(indx)
+                minibatch.append(self.memory[indx])
+            obs, actions, rewards, next_obs, error = [np.stack(x) for x in np.array(minibatch).T]
+            target = rewards + self.gamma * np.amax(self.target_model.predict([next_obs]), axis=1)
+            target_f = self.model.predict([obs])
+            for i, action in enumerate(actions):
+                self.memory[indx_list[i]][4] = abs(target_f[i][action] - target[i])
+                target_f[i][action] = target[i]
+            self.model.fit([obs], target_f, epochs=1, verbose=0)
+            if self.epsilon > self.epsilon_min:
+                self.epsilon *= self.epsilon_decay
 
     def load_model(self, dir="model/dqn", step=0):
         name = "dqn_agent_{}.h5".format(step)
@@ -248,4 +280,4 @@ for i, k in enumerate(scenario_dirs):
     agent_specs[k] = TestAgent()
     # **important**: assign policy builder to your agent spec
     # NOTE: the policy builder must be a callable function which returns an instance of `AgentPolicy`
-    # agent_specs[k].load_model(dir="model/dqn_warm_up", step=19)
+    # agent_specs[k].load_model(dir="model/dqn_warm_up", step=14)

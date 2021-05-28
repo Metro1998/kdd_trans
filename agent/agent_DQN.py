@@ -60,7 +60,7 @@ class TestAgent():
         self.epsilon_decay = 0.99
         self.learning_rate = 0.01
         self.with_per = 1
-        self.batch_size = 1024
+        self.batch_size = 512
         self.ob_length = 17
 
         self.action_space = 8

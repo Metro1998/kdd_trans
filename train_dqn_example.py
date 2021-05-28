@@ -327,7 +327,6 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
         for agent_id in agent_id_list:
             episodes_rewards[agent_id] = 0
         observations_for_agent = agent.extract_state(agent_id_list, agents, roads, infos, observations)
-        print(observations_for_agent)
         episodes_decision_num = 0
         # Begins one simulation.
         i = 0

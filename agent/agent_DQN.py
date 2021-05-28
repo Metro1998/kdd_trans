@@ -49,7 +49,7 @@ class TestAgent():
         self.agent_list = []
         self.phase_passablelane = {}
 
-        self.memory = deque(maxlen=100000)
+        self.memory = deque(maxlen=500000)
         self.learning_start = 1
         self.update_model_freq = 1
         self.update_target_model_freq = 20
@@ -60,7 +60,7 @@ class TestAgent():
         self.epsilon_decay = 0.99
         self.learning_rate = 0.01
         self.with_per = 1
-        self.batch_size = 512
+        self.batch_size = 1024
         self.ob_length = 17
 
         self.action_space = 8
@@ -133,13 +133,25 @@ class TestAgent():
             # The last is now_phase.
             observations_for_agent[observations_agent_id] = [0] * 17
             inroads_of_agent = agents[observations_agent_id][0:4]
-            observations_for_agent[observations_agent_id][0:8] = observation["{}_lane_vehicle_num".format(
-                observations_agent_id)][1:9]
+            j = 1
             for i in range(0, 8, 2):
+                # match left and approach lane , get traffic density
+                if observation["{}_lane_vehicle_num".format(observations_agent_id)][j] == -1:
+                    observations_for_agent[observations_agent_id][i] = 0
+                else:
+                    observations_for_agent[observations_agent_id][i] = observation["{}_lane_vehicle_num".format(
+                        observations_agent_id)][j]
+                if observation["{}_lane_vehicle_num".format(observations_agent_id)][j+1] == -1:
+                    observations_for_agent[observations_agent_id][i+1] = 0
+                else:
+                    observations_for_agent[observations_agent_id][i+1] = observation["{}_lane_vehicle_num".format(
+                        observations_agent_id)][j+1]
+                j += 3
+                # get state
                 if inroads_of_agent[int(i / 2)] != -1:
-                    observations_for_agent[observations_agent_id][i] /= roads[inroads_of_agent[i // 2]]["length"] / 1000
-                    observations_for_agent[observations_agent_id][i + 1] /= roads[inroads_of_agent[i // 2]][
-                                                                                "length"] / 1000
+                    observations_for_agent[observations_agent_id][i] /= (roads[inroads_of_agent[i // 2]]["length"] / 1000)
+                    observations_for_agent[observations_agent_id][i + 1] /= (roads[inroads_of_agent[i // 2]][
+                                                                               "length"] / 1000)
                     observations_for_agent[observations_agent_id][i + 8] = \
                         vehicle_in_road[inroads_of_agent[int(i / 2)]][0]
                     observations_for_agent[observations_agent_id][i + 9] = \
@@ -183,6 +195,13 @@ class TestAgent():
         ob = self._reshape_ob(ob)
         act_values = self.model.predict([ob])
         return np.argmax(act_values[0])
+
+    def get_error(self, obs, new_obs, reward):
+        obs = self._reshape_ob(obs)
+        new_obs = self._reshape_ob(new_obs)
+        error = abs(np.argmax(self.target_model.predict([new_obs])) + reward - np.argmax(self.model.predict([obs])))
+
+        return error
 
     def sample(self):
 
@@ -280,4 +299,4 @@ for i, k in enumerate(scenario_dirs):
     agent_specs[k] = TestAgent()
     # **important**: assign policy builder to your agent spec
     # NOTE: the policy builder must be a callable function which returns an instance of `AgentPolicy`
-    # agent_specs[k].load_model(dir="model/dqn_warm_up", step=14)
+    agent_specs[k].load_model(dir="model/dqn_warm_up", step=4)

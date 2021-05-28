@@ -327,18 +327,20 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
         for agent_id in agent_id_list:
             episodes_rewards[agent_id] = 0
         observations_for_agent = agent.extract_state(agent_id_list, agents, roads, infos, observations)
+        print(observations_for_agent)
         episodes_decision_num = 0
         # Begins one simulation.
         i = 0
         while i < args.steps:
-            print("\r" + "=" * (i*5//36) + "> | {:.2%} | average travel time:{}".
-                  format(i / args.steps, env.eng.get_average_travel_time()), end="")
+            print("\r" + "=" * (i * 5 // 36) + "> | {:.2%} | average travel time:{}".
+                  format(i / (args.steps - 2), env.eng.get_average_travel_time()), end="")
             sys.stdout.flush()
             if i % args.action_interval == 0:
                 # Get the action, note that we use act_() for training.
                 # print("observations_for_agent:{}".format(observations_for_agent))
                 actions = agent.act_(observations_for_agent)
                 rewards_list = {}
+                error_list = {}
 
                 # We keep the same action for a certain time
                 for _ in range(args.action_interval):
@@ -346,18 +348,22 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
                     i += 1
 
                     # Interacts with the environment and get the reward.
-                    _, _, dones, infos = env.step(actions)
+                    observations, _, dones, infos = env.step(actions)
 
                 # Get next state.
                 new_observations_for_agent = agent.extract_state(agent_id_list, agents, roads, infos, observations)
+                print(new_observations_for_agent)
                 for key, val in new_observations_for_agent.items():
                     rewards_list[key] = sum(observations_for_agent[key][8:16]) - sum(val[8:16])
+                    error_list[key] = agent.get_error(observations_for_agent[key], new_observations_for_agent[key],
+                                                      rewards_list[key])
                 rewards = rewards_list
+                error = error_list
 
                 # Remember (state, action, reward, next_state) into memory buffer.
                 for agent_id in agent_id_list:
                     agent.remember(observations_for_agent[agent_id], actions[agent_id] - 1, rewards[agent_id],
-                                   new_observations_for_agent[agent_id])
+                                   new_observations_for_agent[agent_id], error[agent_id])
                     episodes_rewards[agent_id] += rewards[agent_id]
                 episodes_decision_num += 1
                 total_decision_num += 1
@@ -370,16 +376,17 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
                     print("Total decision num:{} training...........".format(total_decision_num))
                     flag = 0
                 agent.replay()
-            if total_decision_num > agent.learning_start and total_decision_num % agent.update_target_model_freq == agent.update_target_model_freq - 1:
-                agent.update_target_network()
+                agent.transfer_weights()
+            # if total_decision_num > agent.learning_start and total_decision_num % agent.update_target_model_freq == agent.update_target_model_freq - 1:
+            #     agent.update_target_network()
             if all(dones.values()):
                 break
         if e % args.save_rate == args.save_rate - 1:
             if not os.path.exists(args.save_dir):
                 os.makedirs(args.save_dir)
             agent.save_model(args.save_dir, e)
-        logger.info(
-            "\nepisode:{}/{}, average travel time:{}".format(e, args.episodes, env.eng.get_average_travel_time()))
+        # logger.info(
+        #     "episode:{}/{}, average travel time:{}".format(e, args.episodes, env.eng.get_average_travel_time()))
         # for agent_id in agent_id_list:
         #     logger.info(
         #         "agent:{}, mean_episode_reward:{}".format(agent_id,
@@ -571,7 +578,7 @@ if __name__ == "__main__":
     parser.add_argument('--thread', type=int, default=8, help='number of threads')
     parser.add_argument('--steps', type=int, default=360, help='number of steps')
     parser.add_argument('--action_interval', type=int, default=2, help='how often agent make decisions')
-    parser.add_argument('--episodes', type=int, default=50, help='training episodes')
+    parser.add_argument('--episodes', type=int, default=10, help='training episodes')
 
     parser.add_argument('--save_model', action="store_true", default=False)
     parser.add_argument('--load_model', action="store_true", default=False)

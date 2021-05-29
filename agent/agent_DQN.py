@@ -50,7 +50,7 @@ class TestAgent():
         self.phase_passablelane = {}
 
         self.memory = deque(maxlen=1000000)
-        self.learning_start = 180
+        self.learning_start = 360
         self.update_model_freq = 1
         self.update_target_model_freq = 20
         self.tau = 1e-2
@@ -168,7 +168,7 @@ class TestAgent():
             for i in range(0, 8, 1):
                 if lane_speed[i] not in [-1, -2]:
                     delay_in_road[agent_id][i] = 1 - (lane_speed[i] / speed_limit_per_lane[i])
-        print(delay_in_road[44051539069])
+        # print(delay_in_road[44051539069])
         return delay_in_road
 
     def extract_traffic_density(self, agent_id_list: list, agents, roads, observation: dict):

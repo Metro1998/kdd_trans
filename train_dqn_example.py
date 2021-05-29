@@ -320,15 +320,15 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period, scores_dir, th
     # Here begins the code for training
 
     total_decision_num = 0
-    env.set_log(0)
-    env.set_warning(0)
-    env.set_ui(0)
-    # env.set_info(0)
     # agent.load_model(args.save_dir, 199)
     flag = 1
     # The main loop
     for e in range(args.episodes):
         print("\n----------------------------------------------------{}/{}".format(e, args.episodes))
+        env.set_log(0)
+        env.set_warning(0)
+        env.set_ui(0)
+        # env.set_info(0)
         observations, infos = env.reset()
         episodes_rewards = {}
         for agent_id in agent_id_list:
@@ -421,7 +421,7 @@ def run_simulation(agent_spec, simulator_cfg_file, gym_cfg, metric_period, score
     # read roadnet file, get data
     roadnet_path = Path(simulator_configs['road_file_addr'])
     intersections, roads, agents = process_roadnet(roadnet_path)
-    env.set_warning(1)
+    env.set_warning(0)
     env.set_log(1)
     env.set_info(1)
     env.set_ui(1)
@@ -464,7 +464,7 @@ def run_simulation(agent_spec, simulator_cfg_file, gym_cfg, metric_period, score
             if (dones[agent_id]):
                 done = True
     sim_end = time.time()
-    logger.info("simulation cost : {}s".format(sim_end - sim_start))
+    logger.info("step:{},simulation cost : {}s".format(step*10, sim_end - sim_start))
     # read log file
 
     # result = {}

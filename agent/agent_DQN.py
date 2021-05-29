@@ -49,7 +49,7 @@ class TestAgent():
         self.agent_list = []
         self.phase_passablelane = {}
 
-        self.memory = deque(maxlen=500000)
+        self.memory = deque(maxlen=1000000)
         self.learning_start = 180
         self.update_model_freq = 1
         self.update_target_model_freq = 20
@@ -61,7 +61,7 @@ class TestAgent():
         self.learning_rate = 0.0075
         self.with_per = 1
         self.batch_size = 512
-        self.ob_length = 17
+        self.ob_length = 33
 
         self.action_space = 8
 
@@ -105,60 +105,108 @@ class TestAgent():
         self.agents = agents
 
     ################################
-    def extract_state(self, agent_id_list: list, agents: dict, roads: dict, infos: dict, observation: dict):
-        # Define our state
-        # get the number of vehicles in a specific length
-        vehicle_in_road = {}
+    def extract_queue_and_delay_in_road(self, agent_id_list, agents, roads: dict, infos, observation):
+        # get queue in roads of agent
+        queue_and_delay_in_road = {}
+        delay_of_agent = {}
+        now_simulation_time = observation["42266617929_lane_speed"][0]
         for i in range(1, 6045):
-            vehicle_in_road[i] = [0, 0, 0]
+            # the former [0,0] storage queue,the latter storage delay
+            queue_and_delay_in_road[i] = [[0, 0], [0, 0]]
         for key, val in infos.items():
             road_id = infos[key]["road"][0]
             lane_id = infos[key]["drivable"][0]
             if roads[road_id]["length"] - infos[key]["distance"][0] < roads[road_id][
                 "speed_limit"] * 20:
+                delay = (now_simulation_time - infos[key]["start_time"][0]) / infos[key]["t_ff"][0]
                 if lane_id == road_id * 100 + 0:
-                    vehicle_in_road[int(road_id)][0] += 1
+                    queue_and_delay_in_road[int(road_id)][0][0] += 1
+                    queue_and_delay_in_road[int(road_id)][1][0] += delay
                 elif lane_id == road_id * 100 + 1:
-                    vehicle_in_road[int(road_id)][1] += 1
-                elif lane_id == road_id * 100 + 2:
-                    vehicle_in_road[int(road_id)][2] += 1
-            else:
-                pass
-
-        observations_for_agent = {}
-        for observations_agent_id in agent_id_list:
-            # observations_for_agent:
-            # The first eight are the number of vehicles in the lane,
-            # The middle eight are the lane density,
-            # The last is now_phase.
-            observations_for_agent[observations_agent_id] = [0] * 17
-            inroads_of_agent = agents[observations_agent_id][0:4]
-            j = 1
-            for i in range(0, 8, 2):
-                # match left and approach lane , get traffic density
-                if observation["{}_lane_vehicle_num".format(observations_agent_id)][j] == -1:
-                    observations_for_agent[observations_agent_id][i] = 0
-                else:
-                    observations_for_agent[observations_agent_id][i] = observation["{}_lane_vehicle_num".format(
-                        observations_agent_id)][j]
-                if observation["{}_lane_vehicle_num".format(observations_agent_id)][j+1] == -1:
-                    observations_for_agent[observations_agent_id][i+1] = 0
-                else:
-                    observations_for_agent[observations_agent_id][i+1] = observation["{}_lane_vehicle_num".format(
-                        observations_agent_id)][j+1]
-                j += 3
-                # get state
-                if inroads_of_agent[int(i / 2)] != -1:
-                    observations_for_agent[observations_agent_id][i] /= (roads[inroads_of_agent[i // 2]]["length"] / 1000)
-                    observations_for_agent[observations_agent_id][i + 1] /= (roads[inroads_of_agent[i // 2]][
-                                                                               "length"] / 1000)
-                    observations_for_agent[observations_agent_id][i + 8] = \
-                        vehicle_in_road[inroads_of_agent[int(i / 2)]][0]
-                    observations_for_agent[observations_agent_id][i + 9] = \
-                        vehicle_in_road[inroads_of_agent[int(i / 2)]][1]
+                    queue_and_delay_in_road[int(road_id)][0][1] += 1
+                    queue_and_delay_in_road[int(road_id)][1][1] += delay
                 else:
                     pass
-            observations_for_agent[observations_agent_id][-1] = self.now_phase[observations_agent_id]
+            else:
+                pass
+        for i in range(1, 6045):
+            if queue_and_delay_in_road[i][0][0] != 0:
+                queue_and_delay_in_road[i][1][0] /= queue_and_delay_in_road[i][0][0]
+            if queue_and_delay_in_road[i][0][1] != 0:
+                queue_and_delay_in_road[i][1][1] /= queue_and_delay_in_road[i][0][1]
+            # print("delay_in_road{}:{} ".format(i, queue_and_delay_in_road[i][1]))
+        queue_of_agent = {}
+        for agent_id in agent_id_list:
+            queue_of_agent[agent_id] = []
+            delay_of_agent[agent_id] = []
+            inroads_of_agent = agents[agent_id][0:4]
+            for inroad_id in inroads_of_agent:
+                if inroad_id == -1:
+                    queue_of_agent[agent_id].extend([0, 0])
+                    delay_of_agent[agent_id].extend([0, 0])
+                else:
+                    queue_of_agent[agent_id].extend(queue_and_delay_in_road[int(inroad_id)][0])
+                    delay_of_agent[agent_id].extend(queue_and_delay_in_road[int(inroad_id)][1])
+        # print(delay_of_agent[44051539069])
+        return queue_of_agent, delay_of_agent
+
+    def extract_delay(self, agent_id_list: list, agents: dict, roads: dict, observation: dict):
+        # delay of per lane = 1-(lane_speed/speed_limit)
+        delay_in_road = {}  # dict: {agnet_id: list of 8}
+        for agent_id in agent_id_list:
+            delay_in_road[agent_id] = [0] * 8
+            inroads_of_agent = agents[agent_id][0:4]
+            speed_limit_per_lane = []
+            for inroad_id in inroads_of_agent:
+                if inroad_id == -1:
+                    speed_limit_per_lane.extend([0] * 2)
+                else:
+                    speed_limit_per_lane.extend([roads[inroad_id]["speed_limit"]] * 2)
+            lane_speed = []
+            for i in range(0, 12, 3):
+                lane_speed.extend(observation["{}_lane_speed".format(agent_id)][i + 1:i + 3])
+            for i in range(0, 8, 1):
+                if lane_speed[i] not in [-1, -2]:
+                    delay_in_road[agent_id][i] = 1 - (lane_speed[i] / speed_limit_per_lane[i])
+        print(delay_in_road[44051539069])
+        return delay_in_road
+
+    def extract_traffic_density(self, agent_id_list: list, agents, roads, observation: dict):
+        traffic_density = {}
+        for agent_id in agent_id_list:
+            traffic_density[agent_id] = []
+            inroads_of_agent = agents[agent_id][0:4]
+            for i in range(0, 12, 3):
+                traffic_density[agent_id].extend(observation["{}_lane_vehicle_num".format(agent_id)][i + 1:i + 3])
+            i = 0
+            for inroad_id in inroads_of_agent:
+                if inroad_id == -1:
+                    traffic_density[agent_id][i] = 0
+                    traffic_density[agent_id][i + 1] = 0
+                else:
+                    traffic_density[agent_id][i] /= (roads[inroad_id]["length"] / 1000)
+                    traffic_density[agent_id][i + 1] /= (roads[inroad_id]["length"] / 1000)
+                i += 2
+        return traffic_density
+
+    def extract_state(self, agent_id_list: list, agents: dict, roads: dict, infos: dict, observation: dict):
+        # Define our state
+        # delay : a list of 8 in one agent
+        delay_in_road = self.extract_delay(agent_id_list, agents, roads, observation)
+        # get queue of per lane in a specific length
+        queue_in_road, delay2_in_road = self.extract_queue_and_delay_in_road(agent_id_list, agents, roads, infos,
+                                                                             observation)
+        traffic_density = self.extract_traffic_density(agent_id_list, agents, roads, observation)
+        observations_for_agent = {}
+        for observations_agent_id in agent_id_list:
+            # observations_for_agent:The first eight are the number of vehicles in the lane,
+            # The middle eight are the lane density,The last is now_phase.
+            observations_for_agent[observations_agent_id] = []
+            observations_for_agent[observations_agent_id].extend(traffic_density[observations_agent_id])
+            observations_for_agent[observations_agent_id].extend(queue_in_road[observations_agent_id])
+            observations_for_agent[observations_agent_id].extend(delay_in_road[observations_agent_id])
+            observations_for_agent[observations_agent_id].extend(delay2_in_road[observations_agent_id])
+            observations_for_agent[observations_agent_id].append(self.now_phase[observations_agent_id])
         return observations_for_agent
 
     def act_(self, observations_for_agent):
@@ -214,13 +262,63 @@ class TestAgent():
         # Neural Net for Deep-Q learning Model
         length = (self.ob_length,)
         inp = Input((length))
+        # gate = inp[-1] - 1
         x = Dense(64, activation='relu')(inp)
+        x = Dense(128, activation='relu')(x)
+        # split = Lambda(lambda x: tf.split(x, 8, axis=1))(x)
+        # if gate == 0 or None:
+        #     x = Dense(64, activation='relu')(split[0])
+        #     x = Dense(self.action_space + 1, activation='linear')(x)
+        #     x = Lambda(lambda i: K.expand_dims(i[:, 0], -1) + i[:, 1:] - K.mean(i[:, 1:], keepdims=True),
+        #                output_shape=(self.action_space,))(x)
+        #     return Model(inp, x)
+        # if gate == 1:
+        #     x = Dense(64, activation='relu')(split[1])
+        #     x = Dense(self.action_space + 1, activation='linear')(x)
+        #     x = Lambda(lambda i: K.expand_dims(i[:, 0], -1) + i[:, 1:] - K.mean(i[:, 1:], keepdims=True),
+        #                output_shape=(self.action_space,))(x)
+        #     return Model(inp, x)
+        # if gate == 2:
+        #     x = Dense(64, activation='relu')(split[2])
+        #     x = Dense(self.action_space + 1, activation='linear')(x)
+        #     x = Lambda(lambda i: K.expand_dims(i[:, 0], -1) + i[:, 1:] - K.mean(i[:, 1:], keepdims=True),
+        #                output_shape=(self.action_space,))(x)
+        #     return Model(inp, x)
+        # if gate == 3:
+        #     x = Dense(64, activation='relu')(split[3])
+        #     x = Dense(self.action_space + 1, activation='linear')(x)
+        #     x = Lambda(lambda i: K.expand_dims(i[:, 0], -1) + i[:, 1:] - K.mean(i[:, 1:], keepdims=True),
+        #                output_shape=(self.action_space,))(x)
+        #     return Model(inp, x)
+        # if gate == 4:
+        #     x = Dense(64, activation='relu')(split[4])
+        #     x = Dense(self.action_space + 1, activation='linear')(x)
+        #     x = Lambda(lambda i: K.expand_dims(i[:, 0], -1) + i[:, 1:] - K.mean(i[:, 1:], keepdims=True),
+        #                output_shape=(self.action_space,))(x)
+        #     return Model(inp, x)
+        # if gate == 5:
+        #     x = Dense(64, activation='relu')(split[5])
+        #     x = Dense(self.action_space + 1, activation='linear')(x)
+        #     x = Lambda(lambda i: K.expand_dims(i[:, 0], -1) + i[:, 1:] - K.mean(i[:, 1:], keepdims=True),
+        #                output_shape=(self.action_space,))(x)
+        #     return Model(inp, x)
+        # if gate == 6:
+        #     x = Dense(64, activation='relu')(split[6])
+        #     x = Dense(self.action_space + 1, activation='linear')(x)
+        #     x = Lambda(lambda i: K.expand_dims(i[:, 0], -1) + i[:, 1:] - K.mean(i[:, 1:], keepdims=True),
+        #                output_shape=(self.action_space,))(x)
+        #     return Model(inp, x)
+        # if gate == 7:
+        #     x = Dense(64, activation='relu')(split[7])
+        #     x = Dense(self.action_space + 1, activation='linear')(x)
+        #     x = Lambda(lambda i: K.expand_dims(i[:, 0], -1) + i[:, 1:] - K.mean(i[:, 1:], keepdims=True),
+        #                output_shape=(self.action_space,))(x)
+        #     return Model(inp, x)
         x = Dense(64, activation='relu')(x)
         x = Dense(self.action_space + 1, activation='linear')(x)
         x = Lambda(lambda i: K.expand_dims(i[:, 0], -1) + i[:, 1:] - K.mean(i[:, 1:], keepdims=True),
                    output_shape=(self.action_space,))(x)
         return Model(inp, x)
-
     def _reshape_ob(self, ob):
         return np.reshape(ob, (1, -1))
 
@@ -299,4 +397,4 @@ for i, k in enumerate(scenario_dirs):
     agent_specs[k] = TestAgent()
     # **important**: assign policy builder to your agent spec
     # NOTE: the policy builder must be a callable function which returns an instance of `AgentPolicy`
-    agent_specs[k].load_model(dir="model/dqn_warm_up", step=9)
+    # agent_specs[k].load_model(dir="model/dqn_warm_up", step=19)

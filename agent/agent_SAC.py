@@ -152,7 +152,7 @@ memory
 class ReplayMemory:
     def __init__(self):
         random.seed(123456)
-        self.capacity = 1000000
+        self.capacity = 10000
         self.buffer = []
         self.position = 0
 
@@ -186,14 +186,13 @@ class SAC():
 
         self.target_update_interval = 1
         self.device = torch.device("cpu")
-        self.hidden_size = 64
+        self.hidden_size = 128
         self.low = 0
         self.high = 8
         self.num_inputs = 9
         self.action_space = np.array([[1, 2, 3, 4, 5, 6, 7, 8]])
 
         # memory para
-        self.capacity = 1000000
         self.positon = 0
         self.buffer = []
 

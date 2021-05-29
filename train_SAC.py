@@ -315,7 +315,7 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
 
     total_decision_num = 0
     updates = 0
-    batch_size = 256
+    batch_size = 512
 
     env.set_log(0)
     env.set_warning(0)

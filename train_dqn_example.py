@@ -279,12 +279,12 @@ def process_score(log_path, roads, step, scores_dir):
     return result_write['data']['total_served_vehicles'], result_write['data']['delay_index']
 
 def calculate_rewards(new_observation_of_one_agent: list):
-    traffic_density = sum(new_observation_of_one_agent[0:8])
+    # traffic_density = sum(new_observation_of_one_agent[0:8])
     queue = sum(new_observation_of_one_agent[8:16])
     delay1 = sum(new_observation_of_one_agent[16:24])
     delay2 = sum(new_observation_of_one_agent[24:32])
     # print(traffic_density, queue, delay1, delay2)
-    reward = (-0.25)*queue + (-5)*delay1 + (-5)*delay2
+    reward = (-10)*queue + (-2.5)*delay1 + (-5)*delay2
     return reward
 def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period, scores_dir, threshold):
     logger.info("\n")
@@ -357,23 +357,20 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period, scores_dir, th
                     observations, _, dones, infos = env.step(actions)
 
                 # Get next state.
-                new_observations_for_agent = agent.extract_state(agent_id_list, agents, roads, infos, observations)
-                for key, val in new_observations_for_agent.items():
-                    rewards_list[key] = calculate_rewards(new_observations_for_agent[key])
-                    error_list[key] = agent.get_error(observations_for_agent[key], new_observations_for_agent[key],
-                                                      actions[key] - 1, rewards_list[key])
+                next_observations_for_agent = agent.extract_state(agent_id_list, agents, roads, infos, observations)
+                for key, val in next_observations_for_agent.items():
+                    rewards_list[key] = calculate_rewards(next_observations_for_agent[key])
                 rewards = rewards_list
-                error = error_list
 
                 # Remember (state, action, reward, next_state) into memory buffer.
                 for agent_id in agent_id_list:
                     agent.remember(observations_for_agent[agent_id], actions[agent_id] - 1, rewards[agent_id],
-                                   new_observations_for_agent[agent_id], error[agent_id])
+                                   next_observations_for_agent[agent_id])
                     episodes_rewards[agent_id] += rewards[agent_id]
                 episodes_decision_num += 1
                 total_decision_num += 1
 
-                observations_for_agent = new_observations_for_agent
+                observations_for_agent = next_observations_for_agent
                 # print("reward:{},".format(rewards))
             # Update the network
             if total_decision_num > agent.learning_start and total_decision_num % agent.update_model_freq == agent.update_model_freq - 1:

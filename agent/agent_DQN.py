@@ -379,7 +379,10 @@ class TestAgent():
     def normalization(data):
         data = np.array(data)
         _range = np.max(data) - np.min(data)
-        return (data - np.min(data)) / _range
+        if np.max(data) == 0:
+            return data
+        else:
+            return (data - np.min(data)) / _range
 
     @staticmethod
     def standardization(data):

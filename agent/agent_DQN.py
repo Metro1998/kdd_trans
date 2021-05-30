@@ -8,21 +8,20 @@ import pickle
 import os
 
 path = os.path.split(os.path.realpath(__file__))[0]
+print(path)
 import sys
 
 sys.path.append(path)
 import random
 
-import gym
-
 from pathlib import Path
 import pickle
-import gym
+# import gym
 
 import tensorflow as tf
 import keras
 from keras.models import Sequential
-from keras.layers import Dense
+from keras.layers import Dense, Multiply, Add
 from keras.optimizers import Adam, RMSprop, SGD
 import os
 from collections import deque
@@ -31,6 +30,7 @@ from keras.layers.merge import concatenate
 from keras.layers import Input, Dense, Conv2D, Flatten, Lambda
 from keras.models import Model
 import keras.backend as K
+from Selector_phase import Selector
 
 
 # contains all of the intersections
@@ -49,20 +49,24 @@ class TestAgent():
         self.agent_list = []
         self.phase_passablelane = {}
 
-        self.memory = deque(maxlen=1000000)
-        self.learning_start = 360
+        self.memory = deque(maxlen=500000)
+        self.learning_start = 180
         self.update_model_freq = 1
         self.update_target_model_freq = 20
         self.tau = 1e-2
+
         self.gamma = 0.95  # discount rate
         self.epsilon = 0.8  # exploration rate
         self.epsilon_min = 0.01
         self.epsilon_decay = 0.99
-        self.learning_rate = 0.0075
-        self.with_per = 1
+        self.learning_rate = 0.01
+
         self.batch_size = 512
         self.ob_length = 33
+        self.with_priortiy = 1
+        self.selector = 0
 
+        self.dense_d = 32
         self.action_space = 8
 
         self.model = self._build_model()
@@ -105,7 +109,8 @@ class TestAgent():
         self.agents = agents
 
     ################################
-    def extract_queue_and_delay_in_road(self, agent_id_list, agents, roads: dict, infos, observation):
+    @staticmethod
+    def extract_queue_and_delay_in_road(agent_id_list, agents, roads: dict, infos, observation):
         # get queue in roads of agent
         queue_and_delay_in_road = {}
         delay_of_agent = {}
@@ -150,7 +155,8 @@ class TestAgent():
         # print(delay_of_agent[44051539069])
         return queue_of_agent, delay_of_agent
 
-    def extract_delay(self, agent_id_list: list, agents: dict, roads: dict, observation: dict):
+    @staticmethod
+    def extract_delay(agent_id_list: list, agents: dict, roads: dict, observation: dict):
         # delay of per lane = 1-(lane_speed/speed_limit)
         delay_in_road = {}  # dict: {agnet_id: list of 8}
         for agent_id in agent_id_list:
@@ -171,7 +177,8 @@ class TestAgent():
         # print(delay_in_road[44051539069])
         return delay_in_road
 
-    def extract_traffic_density(self, agent_id_list: list, agents, roads, observation: dict):
+    @staticmethod
+    def extract_traffic_density(agent_id_list: list, agents, roads, observation: dict):
         traffic_density = {}
         for agent_id in agent_id_list:
             traffic_density[agent_id] = []
@@ -202,10 +209,14 @@ class TestAgent():
             # observations_for_agent:The first eight are the number of vehicles in the lane,
             # The middle eight are the lane density,The last is now_phase.
             observations_for_agent[observations_agent_id] = []
-            observations_for_agent[observations_agent_id].extend(traffic_density[observations_agent_id])
-            observations_for_agent[observations_agent_id].extend(queue_in_road[observations_agent_id])
-            observations_for_agent[observations_agent_id].extend(delay_in_road[observations_agent_id])
-            observations_for_agent[observations_agent_id].extend(delay2_in_road[observations_agent_id])
+            observations_for_agent[observations_agent_id].extend(
+                self.normalization(traffic_density[observations_agent_id]))
+            observations_for_agent[observations_agent_id].extend(
+                self.normalization(queue_in_road[observations_agent_id]))
+            observations_for_agent[observations_agent_id].extend(
+                self.normalization(delay_in_road[observations_agent_id]))
+            observations_for_agent[observations_agent_id].extend(
+                self.normalization(delay2_in_road[observations_agent_id]))
             observations_for_agent[observations_agent_id].append(self.now_phase[observations_agent_id])
         return observations_for_agent
 
@@ -244,13 +255,6 @@ class TestAgent():
         act_values = self.model.predict([ob])
         return np.argmax(act_values[0])
 
-    def get_error(self, obs, new_obs, action, reward):
-        obs = self._reshape_ob(obs)
-        new_obs = self._reshape_ob(new_obs)
-        error = abs(np.argmax(self.target_model.predict([new_obs])) + reward - self.model.predict([obs])[0][action])
-
-        return error
-
     def sample(self):
 
         # Random samples
@@ -258,68 +262,41 @@ class TestAgent():
         return np.random.randint(0, self.action_space)
 
     def _build_model(self):
-
         # Neural Net for Deep-Q learning Model
         length = (self.ob_length,)
         inp = Input((length))
-        # gate = inp[-1] - 1
+        cur_phase = inp[-1]
         x = Dense(64, activation='relu')(inp)
-        x = Dense(128, activation='relu')(x)
-        # split = Lambda(lambda x: tf.split(x, 8, axis=1))(x)
-        # if gate == 0 or None:
-        #     x = Dense(64, activation='relu')(split[0])
-        #     x = Dense(self.action_space + 1, activation='linear')(x)
-        #     x = Lambda(lambda i: K.expand_dims(i[:, 0], -1) + i[:, 1:] - K.mean(i[:, 1:], keepdims=True),
-        #                output_shape=(self.action_space,))(x)
-        #     return Model(inp, x)
-        # if gate == 1:
-        #     x = Dense(64, activation='relu')(split[1])
-        #     x = Dense(self.action_space + 1, activation='linear')(x)
-        #     x = Lambda(lambda i: K.expand_dims(i[:, 0], -1) + i[:, 1:] - K.mean(i[:, 1:], keepdims=True),
-        #                output_shape=(self.action_space,))(x)
-        #     return Model(inp, x)
-        # if gate == 2:
-        #     x = Dense(64, activation='relu')(split[2])
-        #     x = Dense(self.action_space + 1, activation='linear')(x)
-        #     x = Lambda(lambda i: K.expand_dims(i[:, 0], -1) + i[:, 1:] - K.mean(i[:, 1:], keepdims=True),
-        #                output_shape=(self.action_space,))(x)
-        #     return Model(inp, x)
-        # if gate == 3:
-        #     x = Dense(64, activation='relu')(split[3])
-        #     x = Dense(self.action_space + 1, activation='linear')(x)
-        #     x = Lambda(lambda i: K.expand_dims(i[:, 0], -1) + i[:, 1:] - K.mean(i[:, 1:], keepdims=True),
-        #                output_shape=(self.action_space,))(x)
-        #     return Model(inp, x)
-        # if gate == 4:
-        #     x = Dense(64, activation='relu')(split[4])
-        #     x = Dense(self.action_space + 1, activation='linear')(x)
-        #     x = Lambda(lambda i: K.expand_dims(i[:, 0], -1) + i[:, 1:] - K.mean(i[:, 1:], keepdims=True),
-        #                output_shape=(self.action_space,))(x)
-        #     return Model(inp, x)
-        # if gate == 5:
-        #     x = Dense(64, activation='relu')(split[5])
-        #     x = Dense(self.action_space + 1, activation='linear')(x)
-        #     x = Lambda(lambda i: K.expand_dims(i[:, 0], -1) + i[:, 1:] - K.mean(i[:, 1:], keepdims=True),
-        #                output_shape=(self.action_space,))(x)
-        #     return Model(inp, x)
-        # if gate == 6:
-        #     x = Dense(64, activation='relu')(split[6])
-        #     x = Dense(self.action_space + 1, activation='linear')(x)
-        #     x = Lambda(lambda i: K.expand_dims(i[:, 0], -1) + i[:, 1:] - K.mean(i[:, 1:], keepdims=True),
-        #                output_shape=(self.action_space,))(x)
-        #     return Model(inp, x)
-        # if gate == 7:
-        #     x = Dense(64, activation='relu')(split[7])
-        #     x = Dense(self.action_space + 1, activation='linear')(x)
-        #     x = Lambda(lambda i: K.expand_dims(i[:, 0], -1) + i[:, 1:] - K.mean(i[:, 1:], keepdims=True),
-        #                output_shape=(self.action_space,))(x)
-        #     return Model(inp, x)
-        x = Dense(64, activation='relu')(x)
-        x = Dense(self.action_space + 1, activation='linear')(x)
-        x = Lambda(lambda i: K.expand_dims(i[:, 0], -1) + i[:, 1:] - K.mean(i[:, 1:], keepdims=True),
-                   output_shape=(self.action_space,))(x)
-        return Model(inp, x)
-    def _reshape_ob(self, ob):
+        if self.selector == 0:
+            x = Dense(64, activation='relu')(x)
+            x = Dense(32, activation='relu')(x)
+            x = Dense(self.action_space + 1, activation='linear')(x)
+            x = Lambda(lambda i: K.expand_dims(i[:, 0], -1) + i[:, 1:] - K.mean(i[:, 1:], keepdims=True),
+                       output_shape=(self.action_space,))(x)
+            return Model(inp, x)
+        else:
+            list_selected_q_values = []
+            for phase in range(1, 1 + self.action_space):
+                locals()["q_value_{}".format(phase)] = self._separate_network_structure(x, self.dense_d,
+                                                                                        self.action_space, str(phase))
+                locals()["selector_{0}".format(phase)] = Selector(
+                    phase, name="selector_{0}".format(phase))(cur_phase)
+                locals()["q_values_{0}_selected".format(phase)] = Multiply(name="multiply_{0}".format(phase))(
+                    [locals()["q_values_{0}".format(phase)],
+                     locals()["selector_{0}".format(phase)]]
+                )
+                list_selected_q_values.append(locals()["q_values_{0}_selected".format(phase)])
+            q_values = list_selected_q_values
+            return Model(inp, q_values)
+
+    @staticmethod
+    def _separate_network_structure(input, dense_d, num_actions, memo=""):
+        hidden_1 = Dense(dense_d, activation="sigmoid", name="hidden_separate_branch_{0}_1".format(memo))(input)
+        q_values = Dense(num_actions, activation="linear", name="q_values_separate_branch_{0}".format(memo))(hidden_1)
+        return q_values
+
+    @staticmethod
+    def _reshape_ob(ob):
         return np.reshape(ob, (1, -1))
 
     def update_target_network(self):
@@ -335,45 +312,57 @@ class TestAgent():
             tgt_W[i] = self.tau * W[i] + (1 - self.tau) * tgt_W[i]
         self.target_model.set_weights(tgt_W)
 
-    def remember(self, ob, action, reward, next_ob, error):
-        self.memory.append([ob, action, reward, next_ob, error])
+    def remember(self, ob, action, reward, next_ob):
+        self.memory.append([ob, action, reward, next_ob])
+
+    def _get_next_estimated_q(self, next_obs):
+        action = np.argmax(self.model.predict([next_obs]), axis=1)[0]
+        next_estimated_q = self.target_model.predict([next_obs])[0][action]
+        return next_estimated_q
+
+    def _sample_memory(self):
+        if self.with_priortiy == 0:
+            if self.batch_size > len(self.memory):
+                sampled_memory = self.memory
+            else:
+                sampled_memory = random.sample(self.memory, self.batch_size)
+        else:
+            sample_weight = []
+            for i in range(len(self.memory)):
+                obs, action, reward, next_obs = self.memory[i]
+                next_estimated_q = self._get_next_estimated_q(next_obs)
+                total_reward = reward + self.gamma * next_estimated_q
+                target = self.model.predict([obs])
+                pre_target = np.copy(target)
+                target[0][action] = total_reward
+
+                # get the bias of current prediction
+                weight = abs(pre_target[0][action] - total_reward)
+                sample_weight.append(weight)
+            priority = self._cal_priority(sample_weight)
+            p = random.choices(range(len(priority)), weights=priority, k=self.batch_size)
+            sampled_memory = np.array(self.memory)[p]
+        return sampled_memory
+
+    @staticmethod
+    def _cal_priority(sample_weight):
+        pos_constant = 0.0001
+        alpha = 1
+        sample_weight_np = np.array(sample_weight)
+        sample_weight_np = np.power(sample_weight_np + pos_constant, alpha) / sample_weight_np.sum()
+        return sample_weight_np
 
     def replay(self):
         # Update the Q network from the memory buffer.
-        if self.with_per == 0:
-            if self.batch_size > len(self.memory):
-                minibatch = self.memory
-            else:
-                minibatch = random.sample(self.memory, self.batch_size)
-            obs, actions, rewards, next_obs, error = [np.stack(x) for x in np.array(minibatch).T]
-            target = rewards + self.gamma * np.amax(self.target_model.predict([next_obs]), axis=1)
-            target_f = self.model.predict([obs])
-            for i, action in enumerate(actions):
-                target_f[i][action] = target[i]
-            self.model.fit([obs], target_f, epochs=1, verbose=0)
-            if self.epsilon > self.epsilon_min:
-                self.epsilon *= self.epsilon_decay
-        else:
-            minibatch = []
-            indx_list = []
-            self.memory = sorted(self.memory, key=lambda x: x[4])
-            error_list = [x[4] for x in self.memory]
-            cumsum_error = np.cumsum(error_list)
-            cumsum_error_p = cumsum_error / cumsum_error[-1]
-            for i in range(self.batch_size):
-                a = random.uniform(0, cumsum_error_p[-1])
-                indx = np.searchsorted(cumsum_error_p, a)
-                indx_list.append(indx)
-                minibatch.append(self.memory[indx])
-            obs, actions, rewards, next_obs, error = [np.stack(x) for x in np.array(minibatch).T]
-            target = rewards + self.gamma * np.amax(self.target_model.predict([next_obs]), axis=1)
-            target_f = self.model.predict([obs])
-            for i, action in enumerate(actions):
-                self.memory[indx_list[i]][4] = abs(target_f[i][action] - target[i])
-                target_f[i][action] = target[i]
-            self.model.fit([obs], target_f, epochs=1, verbose=0)
-            if self.epsilon > self.epsilon_min:
-                self.epsilon *= self.epsilon_decay
+        minibatch = self._sample_memory()
+        obs, actions, rewards, next_obs = [np.stack(x) for x in np.array(minibatch).T]
+        target = rewards + self.gamma * np.amax(self.target_model.predict([next_obs]), axis=1)
+        target_f = self.model.predict([obs])
+        for i, action in enumerate(actions):
+            target_f[i][action] = target[i]
+        self.model.fit([obs], target_f, epochs=1, verbose=0)
+        if self.epsilon > self.epsilon_min:
+            self.epsilon *= self.epsilon_decay
 
     def load_model(self, dir="model/dqn", step=0):
         name = "dqn_agent_{}.h5".format(step)
@@ -386,6 +375,19 @@ class TestAgent():
         model_name = os.path.join(dir, name)
         self.model.save_weights(model_name)
 
+    @staticmethod
+    def normalization(data):
+        data = np.array(data)
+        _range = np.max(data) - np.min(data)
+        return (data - np.min(data)) / _range
+
+    @staticmethod
+    def standardization(data):
+        data = np.array(data)
+        mu = np.mean(data, axis=0)
+        sigma = np.std(data, axis=0)
+        return (data - mu) / sigma
+
 
 scenario_dirs = [
     "test"
@@ -397,4 +399,3 @@ for i, k in enumerate(scenario_dirs):
     agent_specs[k] = TestAgent()
     # **important**: assign policy builder to your agent spec
     # NOTE: the policy builder must be a callable function which returns an instance of `AgentPolicy`
-    # agent_specs[k].load_model(dir="model/dqn_warm_up", step=19)

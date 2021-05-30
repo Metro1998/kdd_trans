@@ -315,10 +315,17 @@ class TestAgent():
     def remember(self, ob, action, reward, next_ob):
         self.memory.append([ob, action, reward, next_ob])
 
-    def _get_next_estimated_q(self, next_obs):
-        action = np.argmax(self.model.predict([next_obs]), axis=1)[0]
-        next_estimated_q = self.target_model.predict([next_obs])[0][action]
-        return next_estimated_q
+    def replay(self):
+        # Update the Q network from the memory buffer.
+        minibatch = self._sample_memory()
+        obs, actions, rewards, next_obs = [np.stack(x) for x in np.array(minibatch).T]
+        target = rewards + self.gamma * np.amax(self.target_model.predict([next_obs]), axis=1)
+        target_f = self.model.predict([obs])
+        for i, action in enumerate(actions):
+            target_f[i][action] = target[i]
+        self.model.fit([obs], target_f, epochs=1, verbose=0)
+        if self.epsilon > self.epsilon_min:
+            self.epsilon *= self.epsilon_decay
 
     def _sample_memory(self):
         if self.with_priortiy == 0:
@@ -332,7 +339,7 @@ class TestAgent():
                 obs, action, reward, next_obs = self.memory[i]
                 next_estimated_q = self._get_next_estimated_q(next_obs)
                 total_reward = reward + self.gamma * next_estimated_q
-                target = self.model.predict([obs])
+                target = self.model.predict([[obs]])
                 pre_target = np.copy(target)
                 target[0][action] = total_reward
 
@@ -344,6 +351,11 @@ class TestAgent():
             sampled_memory = np.array(self.memory)[p]
         return sampled_memory
 
+    def _get_next_estimated_q(self, next_obs):
+        action = np.argmax(self.model.predict([[next_obs]]), axis=1)[0]
+        next_estimated_q = self.target_model.predict([[next_obs]])[0][action]
+        return next_estimated_q
+
     @staticmethod
     def _cal_priority(sample_weight):
         pos_constant = 0.0001
@@ -351,18 +363,6 @@ class TestAgent():
         sample_weight_np = np.array(sample_weight)
         sample_weight_np = np.power(sample_weight_np + pos_constant, alpha) / sample_weight_np.sum()
         return sample_weight_np
-
-    def replay(self):
-        # Update the Q network from the memory buffer.
-        minibatch = self._sample_memory()
-        obs, actions, rewards, next_obs = [np.stack(x) for x in np.array(minibatch).T]
-        target = rewards + self.gamma * np.amax(self.target_model.predict([next_obs]), axis=1)
-        target_f = self.model.predict([obs])
-        for i, action in enumerate(actions):
-            target_f[i][action] = target[i]
-        self.model.fit([obs], target_f, epochs=1, verbose=0)
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
 
     def load_model(self, dir="model/dqn", step=0):
         name = "dqn_agent_{}.h5".format(step)

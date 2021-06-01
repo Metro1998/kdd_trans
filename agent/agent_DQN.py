@@ -6,7 +6,7 @@ As an example, this file offers a standard implementation.
 
 import pickle
 import os
-
+import time
 path = os.path.split(os.path.realpath(__file__))[0]
 print(path)
 import sys
@@ -21,7 +21,7 @@ import pickle
 import tensorflow as tf
 import keras
 from keras.models import Sequential
-from keras.layers import Dense, Multiply, Add
+from keras.layers import Dense, Multiply, Add, LeakyReLU
 from keras.optimizers import Adam, RMSprop, SGD
 import os
 from collections import deque
@@ -61,7 +61,7 @@ class TestAgent():
         self.epsilon_decay = 0.99
         self.learning_rate = 0.01
 
-        self.batch_size = 512
+        self.batch_size = 256
         self.ob_length = 33
         self.with_priortiy = 1
         self.selector = 0
@@ -74,7 +74,7 @@ class TestAgent():
         # Remember to uncomment the following lines when submitting, and submit your model file as well.
         # path = os.path.split(os.path.realpath(__file__))[0]
         # self.load_model(path, 99)
-        self.load_model(dir="model/dqn_warm_up",step=4)
+        # self.load_model(dir="model/dqn_warm_up",step=14)
         self.target_model = self._build_model()
         self.target_model.compile(Adam(self.learning_rate), 'mse')
         self.update_target_network()
@@ -267,10 +267,13 @@ class TestAgent():
         length = (self.ob_length,)
         inp = Input((length))
         cur_phase = inp[-1]
-        x = Dense(64, activation='relu')(inp)
+        x = Dense(64)(inp)
+        x = LeakyReLU()(x)
         if self.selector == 0:
-            x = Dense(64, activation='relu')(x)
-            x = Dense(32, activation='relu')(x)
+            x = Dense(64)(x)
+            x = LeakyReLU()(x)
+            x = Dense(32)(x)
+            x = LeakyReLU()(x)
             x = Dense(self.action_space + 1, activation='linear')(x)
             x = Lambda(lambda i: K.expand_dims(i[:, 0], -1) + i[:, 1:] - K.mean(i[:, 1:], keepdims=True),
                        output_shape=(self.action_space,))(x)
@@ -335,32 +338,45 @@ class TestAgent():
             else:
                 sampled_memory = random.sample(self.memory, self.batch_size)
         else:
-            sample_weight = []
-            for i in range(len(self.memory)):
-                obs, action, reward, next_obs = self.memory[i]
-                next_estimated_q = self._get_next_estimated_q(next_obs)
-                total_reward = reward + self.gamma * next_estimated_q
-                target = self.model.predict([[obs]])
-                pre_target = np.copy(target)
-                target[0][action] = total_reward
-
-                # get the bias of current prediction
-                weight = abs(pre_target[0][action] - total_reward)
-                sample_weight.append(weight)
+            # start_time = time.time()
+            memory = np.array(np.array(self.memory).reshape((-1, 200, 4)))
+            sample_weight = self._replay(memory)
+            # time_interval = time.time() - start_time
+            # print("time_interval:{}".format(time_interval))
             priority = self._cal_priority(sample_weight)
             p = random.choices(range(len(priority)), weights=priority, k=self.batch_size)
             sampled_memory = np.array(self.memory)[p]
         return sampled_memory
 
+    def _replay(self, memory):
+        sample_weight = []
+        # print("memory.shape:{}".format(memory.shape))
+        for i in range(memory.shape[0]):
+            obs, actions, rewards, next_obs = [np.stack(x) for x in memory[i].T]
+            next_estimated_q = self._get_next_estimated_q(next_obs)
+            total_reward = np.array(rewards) + np.squeeze(self.gamma * next_estimated_q)
+            target = self.model.predict([obs])
+            pre_target = np.copy(target)
+            for i in range(len(target)):
+                # get the bias of current prediction
+                weight = abs(pre_target[i][actions[i]] - total_reward[i])
+                sample_weight.append(weight)
+        print("total_reward shape:{}".format(total_reward.shape))
+        return sample_weight
+
     def _get_next_estimated_q(self, next_obs):
-        action = np.argmax(self.model.predict([[next_obs]]), axis=1)[0]
-        next_estimated_q = self.target_model.predict([[next_obs]])[0][action]
+        # print("len of next obs:{}".format(len(next_obs)))
+        next_estimated_q = np.empty((len(next_obs), 1))
+        actions = np.argmax(self.model.predict([next_obs]), axis=1)
+        predict_q = self.target_model.predict([next_obs])
+        for i, action in enumerate(actions):
+            next_estimated_q[i] = predict_q[i][action]
         return next_estimated_q
 
     @staticmethod
     def _cal_priority(sample_weight):
         pos_constant = 0.0001
-        alpha = 1
+        alpha = 1.2
         sample_weight_np = np.array(sample_weight)
         sample_weight_np = np.power(sample_weight_np + pos_constant, alpha) / sample_weight_np.sum()
         return sample_weight_np
@@ -380,7 +396,7 @@ class TestAgent():
     def normalization(data):
         data = np.array(data)
         _range = np.max(data) - np.min(data)
-        if np.max(data) == 0:
+        if np.max(data) - np.min(data) == 0:
             return data
         else:
             return (data - np.min(data)) / _range

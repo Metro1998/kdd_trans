@@ -19,7 +19,6 @@ logger.setLevel(logging.INFO)
 
 gym.logger.setLevel(gym.logger.ERROR)
 
-
 def pretty_files(path):
     contents = os.listdir(path)
     return "[{}]".format(", ".join(contents))
@@ -284,7 +283,7 @@ def calculate_rewards(new_observation_of_one_agent: list):
     delay1 = sum(new_observation_of_one_agent[16:24])
     delay2 = sum(new_observation_of_one_agent[24:32])
     # print(traffic_density, queue, delay1, delay2)
-    reward = (-10)*queue + (-2.5)*delay1 + (-5)*delay2
+    reward = (-2.5)*queue + (-0.5)*delay1 + (-5)*delay2
     return reward
 def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period, scores_dir, threshold):
     logger.info("\n")

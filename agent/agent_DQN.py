@@ -50,15 +50,15 @@ class TestAgent():
         self.phase_passablelane = {}
 
         self.memory = deque(maxlen=10000)
-        self.learning_start = 90
+        self.learning_start = 30
         self.update_model_freq = 1
         self.update_target_model_freq = 20
         self.tau = 1e-2
 
         self.gamma = 0.95  # discount rate
-        self.epsilon = 0.8  # exploration rate
+        self.epsilon = 1  # exploration rate
         self.epsilon_min = 0.01
-        self.epsilon_decay = 0.99
+        self.epsilon_decay = 0.995
         self.learning_rate = 0.01
 
         self.batch_size = 256
@@ -135,11 +135,11 @@ class TestAgent():
                     pass
             else:
                 pass
-        for i in range(1, 6045):
-            if queue_and_delay_in_road[i][0][0] != 0:
-                queue_and_delay_in_road[i][1][0] /= queue_and_delay_in_road[i][0][0]
-            if queue_and_delay_in_road[i][0][1] != 0:
-                queue_and_delay_in_road[i][1][1] /= queue_and_delay_in_road[i][0][1]
+        # for i in range(1, 6045):
+        #     if queue_and_delay_in_road[i][0][0] != 0:
+        #         queue_and_delay_in_road[i][1][0] /= queue_and_delay_in_road[i][0][0]
+        #     if queue_and_delay_in_road[i][0][1] != 0:
+        #         queue_and_delay_in_road[i][1][1] /= queue_and_delay_in_road[i][0][1]
             # print("delay_in_road{}:{} ".format(i, queue_and_delay_in_road[i][1]))
         queue_of_agent = {}
         for agent_id in agent_id_list:
@@ -361,7 +361,7 @@ class TestAgent():
                 # get the bias of current prediction
                 weight = abs(pre_target[i][actions[i]] - total_reward[i])
                 sample_weight.append(weight)
-        print("total_reward shape:{}".format(total_reward.shape))
+        # print("total_reward shape:{}".format(total_reward.shape))
         return sample_weight
 
     def _get_next_estimated_q(self, next_obs):
@@ -396,8 +396,10 @@ class TestAgent():
     def normalization(data):
         data = np.array(data)
         _range = np.max(data) - np.min(data)
-        if np.max(data) - np.min(data) == 0:
+        if np.max(data) == 0:
             return data
+        elif _range == 0:
+            return data/data
         else:
             return (data - np.min(data)) / _range
 

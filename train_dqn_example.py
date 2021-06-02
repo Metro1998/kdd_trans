@@ -283,7 +283,7 @@ def calculate_rewards(new_observation_of_one_agent: list):
     delay1 = sum(new_observation_of_one_agent[16:24])
     delay2 = sum(new_observation_of_one_agent[24:32])
     # print(traffic_density, queue, delay1, delay2)
-    reward = (-2.5)*queue + (-0.5)*delay1 + (-5)*delay2
+    reward = (-0.5)*queue + (-0.25)*delay1 + (-1.5)*delay2
     return reward
 def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period, scores_dir, threshold):
     logger.info("\n")

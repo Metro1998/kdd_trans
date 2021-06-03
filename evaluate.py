@@ -81,7 +81,7 @@ def load_agent_submission(submission_dir: Path):
 
     gym_cfg_instance = gym_cfg_submission.gym_cfg()
 
-    return  agent_submission.agent_specs,gym_cfg_instance
+    return agent_submission.agent_specs, gym_cfg_instance
 
 
 def read_config(cfg_file):

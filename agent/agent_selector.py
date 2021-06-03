@@ -302,7 +302,7 @@ class TestAgent():
     def _separate_network_structure(self, input, dense_d1, dense_d2, num_actions, memo=""):
         hidden_1 = Dense(dense_d1, name="hidden_separate_branch_{0}_1".format(memo))(input)
         hidden_1 = LeakyReLU()(hidden_1)
-        hidden_2 = Dense(dense_d2, name="hidden_separate_branch_{0}_1".format(memo))(hidden_1)
+        hidden_2 = Dense(dense_d2, name="hidden_separate_branch_{0}_2".format(memo))(hidden_1)
         hidden_2 = LeakyReLU()(hidden_2)
         q_values = Dense(num_actions + 1, activation="linear", name="q_values_separate_branch_{0}".format(memo))(
             hidden_2)

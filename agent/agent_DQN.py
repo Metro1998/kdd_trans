@@ -22,7 +22,7 @@ import tensorflow as tf
 import keras
 from keras.models import Sequential
 from keras.layers import Dense, Multiply, Add, LeakyReLU
-from keras.optimizers import Adam, RMSprop, SGD
+from keras.optimizers import Adam, RMSprop, SGD, Adadelta
 import os
 from collections import deque
 import numpy as np
@@ -72,8 +72,8 @@ class TestAgent():
         self.model = self._build_model()
         self.model.compile(Adam(self.learning_rate), 'mse')
         # Remember to uncomment the following lines when submitting, and submit your model file as well.
-        # path = os.path.split(os.path.realpath(__file__))[0]
-        # self.load_model(path, 99)
+        path = os.path.split(os.path.realpath(__file__))[0]
+        self.load_model(path, 24)
         # self.load_model(dir="model/dqn_warm_up",step=14)
         self.target_model = self._build_model()
         self.target_model.compile(Adam(self.learning_rate), 'mse')

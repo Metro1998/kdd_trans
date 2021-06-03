@@ -7,6 +7,7 @@ As an example, this file offers a standard implementation.
 import pickle
 import os
 import time
+
 path = os.path.split(os.path.realpath(__file__))[0]
 print(path)
 import sys
@@ -66,7 +67,8 @@ class TestAgent():
         self.with_priortiy = 1
         self.selector = 0
 
-        self.dense_d = 32
+        self.dense_d1 = 64
+        self.dense_d2 = 32
         self.action_space = 8
 
         self.model = self._build_model()
@@ -140,7 +142,7 @@ class TestAgent():
         #         queue_and_delay_in_road[i][1][0] /= queue_and_delay_in_road[i][0][0]
         #     if queue_and_delay_in_road[i][0][1] != 0:
         #         queue_and_delay_in_road[i][1][1] /= queue_and_delay_in_road[i][0][1]
-            # print("delay_in_road{}:{} ".format(i, queue_and_delay_in_road[i][1]))
+        # print("delay_in_road{}:{} ".format(i, queue_and_delay_in_road[i][1]))
         queue_of_agent = {}
         for agent_id in agent_id_list:
             queue_of_agent[agent_id] = []
@@ -266,7 +268,7 @@ class TestAgent():
         # Neural Net for Deep-Q learning Model
         length = (self.ob_length,)
         inp = Input((length))
-        cur_phase = inp[-1]
+        cur_phase = inp[32]
         x = Dense(64)(inp)
         x = LeakyReLU()(x)
         if self.selector == 0:
@@ -278,25 +280,12 @@ class TestAgent():
             x = Lambda(lambda i: K.expand_dims(i[:, 0], -1) + i[:, 1:] - K.mean(i[:, 1:], keepdims=True),
                        output_shape=(self.action_space,))(x)
             return Model(inp, x)
-        else:
-            list_selected_q_values = []
-            for phase in range(1, 1 + self.action_space):
-                locals()["q_value_{}".format(phase)] = self._separate_network_structure(x, self.dense_d,
-                                                                                        self.action_space, str(phase))
-                locals()["selector_{0}".format(phase)] = Selector(
-                    phase, name="selector_{0}".format(phase))(cur_phase)
-                locals()["q_values_{0}_selected".format(phase)] = Multiply(name="multiply_{0}".format(phase))(
-                    [locals()["q_values_{0}".format(phase)],
-                     locals()["selector_{0}".format(phase)]]
-                )
-                list_selected_q_values.append(locals()["q_values_{0}_selected".format(phase)])
-            q_values = list_selected_q_values
-            return Model(inp, q_values)
 
     @staticmethod
-    def _separate_network_structure(input, dense_d, num_actions, memo=""):
-        hidden_1 = Dense(dense_d, activation="sigmoid", name="hidden_separate_branch_{0}_1".format(memo))(input)
-        q_values = Dense(num_actions, activation="linear", name="q_values_separate_branch_{0}".format(memo))(hidden_1)
+    def _separate_network_structure(input, dense_d1, dense_d2, num_actions, memo=""):
+        hidden_1 = Dense(dense_d1, activation="sigmoid", name="hidden_separate_branch_{0}_1".format(memo))(input)
+        hidden_2 = Dense(dense_d2, activation="sigmoid", name="hidden_separate_branch_{0}_2".format(memo))(hidden_1)
+        q_values = Dense(num_actions, activation="linear", name="q_values_separate_branch_{0}".format(memo))(hidden_2)
         return q_values
 
     @staticmethod
@@ -399,7 +388,7 @@ class TestAgent():
         if np.max(data) == 0:
             return data
         elif _range == 0:
-            return data/data
+            return data / data
         else:
             return (data - np.min(data)) / _range
 

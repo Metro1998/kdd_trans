@@ -51,7 +51,7 @@ class TestAgent():
         self.phase_passablelane = {}
 
         self.memory = deque(maxlen=10000)
-        self.learning_start = 15
+        self.learning_start = 90
         self.update_model_freq = 1
         self.update_target_model_freq = 20
         self.tau = 1e-2

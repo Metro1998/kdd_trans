@@ -283,8 +283,9 @@ def calculate_rewards(new_observation_of_one_agent: list):
     delay1 = sum(new_observation_of_one_agent[16:24])
     delay2 = sum(new_observation_of_one_agent[24:32])
     # print(traffic_density, queue, delay1, delay2)
-    reward = (-0.5)*queue + (-0.25)*delay1 + (-1.5)*delay2
+    reward = (-0.5)*queue + (-0.25)*delay1 + (-2)*delay2
     return reward
+
 def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period, scores_dir, threshold):
     logger.info("\n")
     logger.info("*" * 40)
@@ -634,7 +635,7 @@ if __name__ == "__main__":
     # simulation
     start_time = time.time()
     try:
-        train(agent_spec, simulator_cfg_file, gym_cfg, metric_period, scores_dir, threshold)
+        # train(agent_spec, simulator_cfg_file, gym_cfg, metric_period, scores_dir, threshold)
         scores = run_simulation(agent_spec, simulator_cfg_file, gym_cfg, metric_period, scores_dir, threshold)
     except Exception as e:
         msg = format_exception(e)

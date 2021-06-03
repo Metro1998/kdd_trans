@@ -50,7 +50,7 @@ class TestAgent():
         self.agent_list = []
         self.phase_passablelane = {}
 
-        self.memory = deque(maxlen=10000)
+        self.memory = deque(maxlen=8000)
         self.learning_start = 90
         self.update_model_freq = 1
         self.update_target_model_freq = 20
@@ -80,6 +80,7 @@ class TestAgent():
         self.target_model = self._build_model()
         self.target_model.compile(Adam(self.learning_rate), 'mse')
         self.update_target_network()
+        # self.between_model = Model(inputs=self.model.inputs, outputs=self.model.get_layer(name="multiply_1"))
 
     ################################
     # don't modify this function.
@@ -256,6 +257,8 @@ class TestAgent():
             return self.sample()
         ob = self._reshape_ob(ob)
         act_values = self.model.predict(ob)
+        # with tf.Session() as sess:
+        #     print(self.between_model.predict(ob))
         return np.argmax(act_values[0])
 
     def sample(self):
@@ -274,17 +277,11 @@ class TestAgent():
         for feature_name in self.feature.keys():
             list_all_feature.append(dict_input_node[feature_name])
         all_feature = concatenate(list_all_feature, axis=1, name="all_feature")
-
+        # print(all_feature.shape)
         x = Dense(64)(all_feature)
         x = LeakyReLU()(x)
         if self.selector == 0:
-            x = Dense(64)(x)
-            x = LeakyReLU()(x)
-            x = Dense(32)(x)
-            x = LeakyReLU()(x)
-            x = Dense(self.action_space + 1, activation='linear')(x)
-            q_values = Lambda(lambda i: K.expand_dims(i[:, 0], -1) + i[:, 1:] - K.mean(i[:, 1:], keepdims=True),
-                              output_shape=(self.action_space,))(x)
+            q_values = self._separate_network_structure(x, self.dense_d1, self.dense_d2, self.action_space, str(0))
         else:
             list_selected_q_values = []
             for phase in range(1, 1 + self.action_space):
@@ -299,15 +296,18 @@ class TestAgent():
                 )
                 list_selected_q_values.append(locals()["q_values_{0}_selected".format(phase)])
             q_values = Add()(list_selected_q_values)
-
         return Model(inputs=[dict_input_node[feature_name] for feature_name in self.feature.keys()],
                      outputs=q_values)
 
-    @staticmethod
-    def _separate_network_structure(input, dense_d1, dense_d2, num_actions, memo=""):
-        hidden_1 = Dense(dense_d1, activation="sigmoid", name="hidden_separate_branch_{0}_1".format(memo))(input)
-        hidden_2 = Dense(dense_d2, activation="sigmoid", name="hidden_separate_branch_{0}_2".format(memo))(hidden_1)
-        q_values = Dense(num_actions, activation="linear", name="q_values_separate_branch_{0}".format(memo))(hidden_2)
+    def _separate_network_structure(self, input, dense_d1, dense_d2, num_actions, memo=""):
+        hidden_1 = Dense(dense_d1, name="hidden_separate_branch_{0}_1".format(memo))(input)
+        hidden_1 = LeakyReLU()(hidden_1)
+        hidden_2 = Dense(dense_d2, name="hidden_separate_branch_{0}_1".format(memo))(hidden_1)
+        hidden_2 = LeakyReLU()(hidden_2)
+        q_values = Dense(num_actions + 1, activation="linear", name="q_values_separate_branch_{0}".format(memo))(
+            hidden_2)
+        q_values = Lambda(lambda i: K.expand_dims(i[:, 0], -1) + i[:, 1:] - K.mean(i[:, 1:], keepdims=True),
+                          output_shape=(self.action_space,))(q_values)
         return q_values
 
     @staticmethod
@@ -355,7 +355,7 @@ class TestAgent():
                 sampled_memory = random.sample(self.memory, self.batch_size)
         else:
             # start_time = time.time()
-            memory = np.array(self.memory).reshape((-1, 200, 4))
+            memory = np.array(self.memory).reshape((-1, 400, 4))
             sample_weight = self._replay(memory)
             # time_interval = time.time() - start_time
             # print("time_interval:{}".format(time_interval))

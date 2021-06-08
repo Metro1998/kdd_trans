@@ -9,9 +9,9 @@ import os
 import sys
 import time
 from pathlib import Path
-import re
 import gym
 import numpy as np
+import matplotlib.pyplot as plt
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__file__)
@@ -279,6 +279,23 @@ def process_score(log_path, roads, step, scores_dir):
     return result_write['data']['total_served_vehicles'], result_write['data']['delay_index']
 
 
+def plot(travel_time):
+    ax1 = plt.subplot(111)
+    ax1.cla()
+    ax1.grid()
+    ax1.set_title('train')
+    ax1.set_xlabel('Episode')
+    ax1.set_ylabel('travel_time')
+    ax1.plot(travel_time)
+    Runtime = len(travel_time)
+
+    # save
+    path = 'travel_time/pic' + 'travel_time' + str(Runtime) + '.jpg'
+    if Runtime % 1 == 0:
+        plt.savefig(path)
+    plt.pause(0.0000001)
+
+
 def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
     logger.info("\n")
     logger.info("*" * 40)
@@ -315,13 +332,14 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
 
     total_decision_num = 0
     updates = 0
-    batch_size = 512
+    batch_size = 256
 
     env.set_log(0)
     env.set_warning(0)
     env.set_ui(0)
     # env.set_info(0)
     # agent.load_model(args.save_dir, 199)
+    travel_time_list = []
 
     # The main loop
     for e in range(args.episodes):
@@ -351,7 +369,6 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
                     actions = agent._act(observations_for_agent)
 
                     # parameters update, the process of sampling is included
-                print(len(memory))
 
                 if len(memory) > 64:
                     critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = agent.update_parameters(memory,
@@ -389,13 +406,19 @@ def train(agent_spec, simulator_cfg_file, gym_cfg, metric_period):
         if e % args.save_rate == args.save_rate - 1:
             if not os.path.exists(args.save_dir):
                 os.makedirs(args.save_dir)
-            agent.save_model(args.save_dir, e)
+            agent.save_critic_model(args.save_dir, e)
+            agent.save_policy_model(args.save_dir, e)
+
         logger.info(
             "episode:{}/{}, average travel time:{}".format(e, args.episodes, env.eng.get_average_travel_time()))
+        travel_time = env.eng.get_average_travel_time()
+        travel_time_list.append(travel_time)
         for agent_id in agent_id_list:
             logger.info(
                 "agent:{}, mean_episode_reward:{}".format(agent_id,
                                                           episodes_rewards[agent_id] / episodes_decision_num))
+
+        plot(travel_time_list)
 
 
 def run_simulation(agent_spec, simulator_cfg_file, gym_cfg, metric_period, scores_dir, threshold):
@@ -587,7 +610,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--save_model', action="store_true", default=False)
     parser.add_argument('--load_model', action="store_true", default=False)
-    parser.add_argument("--save_rate", type=int, default=5,
+    parser.add_argument("--save_rate", type=int, default=2,
                         help="save model once every time this many episodes are completed")
     parser.add_argument('--save_dir', type=str, default="model/dqn_warm_up",
                         help='directory in which model should be saved')

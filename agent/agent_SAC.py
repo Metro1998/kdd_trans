@@ -55,7 +55,7 @@ LOG_SIG_MIN = -20
 # Initialize Policy weights
 def weights_init_(m):
     if isinstance(m, nn.Linear):
-        torch.nn.init.xavier_uniform_(m.weight, gain=1)
+        torch.nn.init.xavier_normal_(m.weight, gain=1)
         torch.nn.init.constant_(m.bias, 0)
 
 
@@ -77,29 +77,28 @@ class ValueNetwork(nn.Module):
 
 
 class QNetwork(nn.Module):
-    def __init__(self, num_inputs, num_actions, hidden_dim):
+    def __init__(self, num_inputs, hidden_dim):
         super(QNetwork, self).__init__()
 
         # Q1 architecture
-        self.linear1 = nn.Linear(num_inputs + num_actions, hidden_dim)
+        self.linear1 = nn.Linear(num_inputs, hidden_dim)
         self.linear2 = nn.Linear(hidden_dim, hidden_dim)
         self.linear3 = nn.Linear(hidden_dim, 1)
 
         # Q2 architecture
-        self.linear4 = nn.Linear(num_inputs + num_actions, hidden_dim)
+        self.linear4 = nn.Linear(num_inputs, hidden_dim)
         self.linear5 = nn.Linear(hidden_dim, hidden_dim)
         self.linear6 = nn.Linear(hidden_dim, 1)
 
         self.apply(weights_init_)
 
     def forward(self, state, action):
-        xu = torch.cat([state, action], 1)
 
-        x1 = F.relu(self.linear1(xu))
+        x1 = F.relu(self.linear1(state))
         x1 = F.relu(self.linear2(x1))
         x1 = self.linear3(x1)
 
-        x2 = F.relu(self.linear4(xu))
+        x2 = F.relu(self.linear4(state))
         x2 = F.relu(self.linear5(x2))
         x2 = self.linear6(x2)
 
@@ -107,14 +106,14 @@ class QNetwork(nn.Module):
 
 
 class GaussianPolicy(nn.Module):
-    def __init__(self, num_inputs, num_actions, hidden_dim):
+    def __init__(self, num_inputs, hidden_dim):
         super(GaussianPolicy, self).__init__()
 
         self.linear1 = nn.Linear(num_inputs, hidden_dim)
         self.linear2 = nn.Linear(hidden_dim, hidden_dim)
 
-        self.mean_linear = nn.Linear(hidden_dim, num_actions)
-        self.log_std_linear = nn.Linear(hidden_dim, num_actions)
+        self.mean_linear = nn.Linear(hidden_dim, 1)
+        self.log_std_linear = nn.Linear(hidden_dim, 1)
 
         self.apply(weights_init_)
 
@@ -127,21 +126,28 @@ class GaussianPolicy(nn.Module):
         mean = self.mean_linear(x)
         log_std = self.log_std_linear(x)
         log_std = torch.clamp(log_std, min=LOG_SIG_MIN, max=LOG_SIG_MAX)
+        # Constrict every element in log_std in to [LOG_SIG_MIN, LOG_SIG_MAX]
         return mean, log_std
 
     def sample(self, state):
         mean, log_std = self.forward(state)
         std = log_std.exp()
         normal = Normal(mean, std)
-        x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
+        x_t = normal.rsample()
+        # first sample from Normal(0,1), then output (mean + std * N(0,1))
         y_t = torch.tanh(x_t)
-        action = self.action_scale * y_t + self.action_bias
+        # (-1, 1)
+        # continuous action space
+        action = y_t * self.action_scale + self.action_bias
+        # Why rescaling? Cause the bound of tanh is (-1, 1), but the bound of action is not.
         log_prob = normal.log_prob(x_t)
+        # log_prob(value)是计算value在定义的正态分布中对应的概率的对数
         # Enforcing Action Bound
-        log_prob -= torch.log(self.action_scale * (1 - y_t.pow(2)) + epsilon)
-        log_prob = log_prob.sum(1, keepdim=True)
+        log_prob -= torch.log(self.action_scale * (1 - y_t.pow(2) + epsilon))
+        log_prob = log_prob.sum(0, keepdim=True)
         mean = torch.tanh(mean) * self.action_scale + self.action_bias
         return action, log_prob, mean
+
 
 
 """
@@ -152,7 +158,7 @@ memory
 class ReplayMemory:
     def __init__(self):
         random.seed(123456)
-        self.capacity = 10000
+        self.capacity = 100000
         self.buffer = []
         self.position = 0
 
@@ -182,32 +188,31 @@ class SAC():
         self.gamma = 0.99
         self.tau = 0.005
         self.alpha = 0.2
-        self.lr = 0.005
+        self.lr = 0.003
 
         self.target_update_interval = 1
         self.device = torch.device("cpu")
-        self.hidden_size = 128
-        self.low = 0
-        self.high = 8
+
+        # 8 phases
         self.num_inputs = 9
-        self.action_space = np.array([[1, 2, 3, 4, 5, 6, 7, 8]])
+        self.num_actions = 1
+        self.hidden_size = 256
 
-        # memory para
-        self.positon = 0
-        self.buffer = []
+        self.critic = QNetwork(self.num_inputs, self.hidden_size).to(self.device)
+        self.critic_optimizer = Adam(self.critic.parameters(), lr=self.lr)
 
-        self.critic = QNetwork(self.num_inputs, self.action_space.shape[0], self.hidden_size).to(self.device)
-        self.critic_optim = Adam(self.critic.parameters(), lr=self.lr)
-
-        self.critic_target = QNetwork(self.num_inputs, self.action_space.shape[0], self.hidden_size).to(self.device)
+        self.critic_target = QNetwork(self.num_inputs, self.hidden_size).to(self.device)
         hard_update(self.critic_target, self.critic)
+        # Copy the parameters of critic to critic_target
 
-        self.target_entropy = -torch.prod(torch.Tensor(self.action_space.shape).to(self.device)).item()
+        self.target_entropy = -torch.Tensor([1.0]).to(self.device).item()
         self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
-        self.alpha_optim = Adam([self.log_alpha], lr=self.lr)
 
-        self.policy = GaussianPolicy(self.num_inputs, self.action_space.shape[0], self.hidden_size).to(self.device)
-        self.policy_optim = Adam(self.policy.parameters(), lr=self.lr)
+        self.alpha_optimizer = Adam([self.log_alpha], lr=self.lr)
+
+        self.policy = GaussianPolicy(self.num_inputs, self.hidden_size).to(
+            self.device)
+        self.policy_optimizer = Adam(self.policy.parameters(), lr=self.lr)
 
     def extract_state(self, agent_id_list: list, agents: dict, roads: dict, infos: dict):
         # Define our state
@@ -264,6 +269,7 @@ class SAC():
         action_batch = torch.FloatTensor(action_batch).to(self.device)
         reward_batch = torch.FloatTensor(reward_batch).to(self.device).unsqueeze(1)
 
+
         with torch.no_grad():
             next_state_action, next_state_log_pi, _ = self.policy.sample(next_state_batch)
             qf1_next_target, qf2_next_target = self.critic_target(next_state_batch, next_state_action)
@@ -275,9 +281,9 @@ class SAC():
         qf2_loss = F.mse_loss(qf2, next_q_value)  # JQ = 𝔼(st,at)~D[0.5(Q1(st,at) - r(st,at) - γ(𝔼st+1~p[V(st+1)]))^2]
         qf_loss = qf1_loss + qf2_loss
 
-        self.critic_optim.zero_grad()
+        self.critic_optimizer.zero_grad()
         qf_loss.backward()
-        self.critic_optim.step()
+        self.critic_optimizer.step()
 
         pi, log_pi, _ = self.policy.sample(state_batch)
 
@@ -286,15 +292,14 @@ class SAC():
 
         policy_loss = ((self.alpha * log_pi) - min_qf_pi).mean()  # Jπ = 𝔼st∼D,εt∼N[α * logπ(f(εt;st)|st) − Q(st,f(εt;st))]
 
-        self.policy_optim.zero_grad()
-        policy_loss.backward()
-        self.policy_optim.step()
+        self.policy_optimizer.zero_grad()
+        self.policy_optimizer.step()
 
         alpha_loss = -(self.log_alpha * (log_pi + self.target_entropy).detach()).mean()
 
-        self.alpha_optim.zero_grad()
+        self.alpha_optimizer.zero_grad()
         alpha_loss.backward()
-        self.alpha_optim.step()
+        self.alpha_optimizer.step()
 
         self.alpha = self.log_alpha.exp()
         alpha_tlogs = self.alpha.clone()  # For TensorboardX logs
@@ -315,26 +320,27 @@ class SAC():
         self.roads = roads
         self.agents = agents
 
-    # Save model parameters
-    def save_model(self, env_name, suffix="", actor_path=None, critic_path=None):
-        if not os.path.exists('models/'):
-            os.makedirs('models/')
+    def load_model(self, dir="model/sac", step=0):
+        critic = "sac_critic_{}.h5".format(step)
+        critic_path = os.path.join(dir, critic)
+        policy = "sac_policy_{}.h5".format(step)
+        policy_path = os.path.join(dir, policy)
+        print("loading")
+        self.critic.load_state_dict(torch.load(critic_path))
+        self.policy.load_state_dict(torch.load(policy_path))
 
-        if actor_path is None:
-            actor_path = "models/sac_actor_{}_{}".format(env_name, suffix)
-        if critic_path is None:
-            critic_path = "models/sac_critic_{}_{}".format(env_name, suffix)
-        print('Saving models to {} and {}'.format(actor_path, critic_path))
-        torch.save(self.policy.state_dict(), actor_path)
+    def save_critic_model(self, dir="model/sac", step=0):
+        critic = "sac_critic_{}.h5".format(step)
+        critic_path = os.path.join(dir, critic)
+        print("saving")
         torch.save(self.critic.state_dict(), critic_path)
 
-    # Load model parameters
-    def load_model(self, actor_path, critic_path):
-        print('Loading models from {} and {}'.format(actor_path, critic_path))
-        if actor_path is not None:
-            self.policy.load_state_dict(torch.load(actor_path))
-        if critic_path is not None:
-            self.critic.load_state_dict(torch.load(critic_path))
+    def save_policy_model(self, dir="model/sac", step=0):
+        policy = "sac_policy_{}.h5".format(step)
+        policy_path = os.path.join(dir, policy)
+        print("saving")
+        torch.save(self.policy.state_dict(), policy_path)
+
 
 
 scenario_dirs = [

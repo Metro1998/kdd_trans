@@ -191,7 +191,7 @@ class SAC():
         self.lr = 0.003
 
         self.target_update_interval = 1
-        self.device = torch.device("cpu")
+        self.device = torch.device("cuda")
 
         # 8 phases
         self.num_inputs = 9

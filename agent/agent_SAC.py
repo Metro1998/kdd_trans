@@ -320,13 +320,15 @@ class SAC():
         self.roads = roads
         self.agents = agents
 
-    def load_model(self, dir="model/sac", step=0):
+    def load_critic_model(self, dir="model/sac", step=0):
         critic = "sac_critic_{}.h5".format(step)
         critic_path = os.path.join(dir, critic)
+        self.critic.load_state_dict(torch.load(critic_path))
+
+    def load_policy_model(self, dir="model/sac", step=0):
         policy = "sac_policy_{}.h5".format(step)
         policy_path = os.path.join(dir, policy)
         print("loading")
-        self.critic.load_state_dict(torch.load(critic_path))
         self.policy.load_state_dict(torch.load(policy_path))
 
     def save_critic_model(self, dir="model/sac", step=0):
